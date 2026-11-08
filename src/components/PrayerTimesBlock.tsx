@@ -26,37 +26,55 @@ interface PrayerTimesBlockProps {
 
 const COMPACT_CARD_LABELS: Record<
   PrayerColumnMeta['key'],
-  { shortTatar: string; shortRu: string; statusTitle: string }
+  {
+    shortTatar: string;
+    shortRu: string;
+    statusTitle: string;
+    rakaatsSummary: string;
+    arabicName: string;
+  }
 > = {
   fajr: {
     shortTatar: 'ИРТӘНГЕ',
     shortRu: 'Фаджр',
     statusTitle: 'ИРТӘНГЕ НАМАЗ (УТРЕННИЙ (ФАДЖР))',
+    rakaatsSummary: '4 ракаата: 2 ракаата сунны + 2 ракаата фарда',
+    arabicName: 'صلاة الفجر',
   },
   sunrise: {
     shortTatar: 'КОЯШ',
     shortRu: 'Шурук',
     statusTitle: 'КОЯШ ЧЫГА (ВОСХОД (ШУРУК))',
+    rakaatsSummary: 'Восход солнца (окончание времени Фаджра; через 20 мин — время намаза Ишрак/Духа)',
+    arabicName: 'الشروق',
   },
   dhuhr: {
     shortTatar: 'ӨЙЛӘ',
     shortRu: 'Зухр',
     statusTitle: 'ӨЙЛӘ НАМАЗ (ПОЛУДЕННЫЙ (ЗУХР))',
+    rakaatsSummary: '10 ракаатов: 4 сунны + 4 фарда + 2 сунны',
+    arabicName: 'صلاة الظهر',
   },
   asr: {
     shortTatar: 'ИКЕНДЕ',
     shortRu: 'Аср',
     statusTitle: 'ИКЕНДЕ НАМАЗ (ПРЕДВЕЧЕРНИЙ (АСР))',
+    rakaatsSummary: '4 ракаата фарда',
+    arabicName: 'صلاة العصر',
   },
   maghrib: {
     shortTatar: 'АХШАМ',
     shortRu: 'Магриб',
     statusTitle: 'АХШАМ НАМАЗ (ВЕЧЕРНИЙ (МАГРИБ))',
+    rakaatsSummary: '5 ракаатов: 3 ракаата фарда + 2 ракаата сунны',
+    arabicName: 'صلاة المغرب',
   },
   isha: {
     shortTatar: 'ЯСТҮ',
     shortRu: 'Иша',
     statusTitle: 'ЯСТҮ НАМАЗ (НОЧНОЙ (ИША))',
+    rakaatsSummary: '9 ракаатов: 4 фарда + 2 сунны + 3 ракаата Витр-ваджиб',
+    arabicName: 'صلاة العشاء',
   },
 };
 
@@ -80,6 +98,7 @@ export default function PrayerTimesBlock({
   const [showFullTable, setShowFullTable] = useState<boolean>(defaultShowFullTable);
   const [showOriginalImage, setShowOriginalImage] = useState<boolean>(false);
   const [tableFilterPeriod, setTableFilterPeriod] = useState<'all' | PrayerPeriodId>('all');
+  const [selectedCardKey, setSelectedCardKey] = useState<PrayerColumnMeta['key'] | null>(null);
 
   // Update clock every 1 second for live HH:MM:SS countdown
   useEffect(() => {
@@ -89,7 +108,13 @@ export default function PrayerTimesBlock({
     return () => window.clearInterval(id);
   }, []);
 
+  const todayDayIdx = useMemo(() => findDefaultDayIndex(now), [now]);
+  const isSelectedToday = selectedDayIdx === todayDayIdx;
   const selectedDay = PRAYER_SCHEDULE_DAYS[selectedDayIdx] || PRAYER_SCHEDULE_DAYS[0];
+  const selectedPeriod = useMemo(
+    () => PRAYER_PERIODS.find((p) => p.id === selectedDay.periodId) || PRAYER_PERIODS[0],
+    [selectedDay.periodId]
+  );
 
   // Calculate active prayer, next prayer, progress bar ratio, and live HH:MM:SS countdown
   const prayerStatus = useMemo(() => {
@@ -223,43 +248,89 @@ export default function PrayerTimesBlock({
       .replace(/\bдек\b/i, 'декабря');
   };
 
+  const liveClockStr = useMemo(() => {
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }, [now]);
+
+  const isPostMaghrib =
+    prayerStatus.currentKey === 'maghrib' || prayerStatus.currentKey === 'isha';
+  const isJumaEve = selectedDay.dayOfWeekShortRu === 'Чт' && isPostMaghrib;
+
   return (
     <section aria-label="Время намаза (Намаз вакытлары)" className="space-y-4">
       {/* Main Dark-Emerald Prayer Times Hero Card (matching screenshot 1:1) */}
       <div className="bg-[#06372C] text-[#FEF3C7] rounded-3xl p-4 sm:p-6 shadow-sm border border-[#052e24] space-y-4">
-        {/* Header Title & Date Subtitle */}
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#EAB308]">
-            <Clock className="w-3.5 h-3.5 shrink-0" />
-            <span>РАСПИСАНИЕ НАМАЗОВ · 12 ОКТ — 9 ДЕК</span>
-            {selectedDay.isJuma && (
-              <span className="px-2 py-0.5 rounded bg-[#EAB308] text-slate-950 text-[10px] font-bold normal-case tracking-normal">
-                Җомга көн
+        {/* Stage 1: Header Title, Juma Badge & Dual Calendar (Gregorian + Hijri) */}
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#EAB308]">
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>РАСПИСАНИЕ НАМАЗОВ · 12 ОКТ — 9 ДЕК</span>
+              {selectedDay.isJuma && (
+                <span className="px-2 py-0.5 rounded bg-[#EAB308] text-slate-950 text-[10px] font-bold normal-case tracking-normal">
+                  Җомга көн
+                </span>
+              )}
+              {isJumaEve && (
+                <span className="px-2 py-0.5 rounded bg-[#EAB308]/90 text-slate-950 text-[10px] font-bold normal-case tracking-normal">
+                  Җомга киче
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span
+                className="px-2.5 py-0.5 rounded-full bg-[#164A3B]/90 border border-[#3E6B58] text-[#FEF3C7] text-[11px] font-mono-tabular font-bold"
+                title="Текущее время"
+              >
+                {liveClockStr}
               </span>
-            )}
+              {!isSelectedToday && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDayIdx(todayDayIdx)}
+                  className="px-2.5 py-0.5 rounded-full bg-[#164A3B] hover:bg-[#1E5C4A] border border-[#EAB308]/60 text-[#FEF3C7] text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Вернуться к сегодняшней дате"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#EAB308]" />
+                  <span>Сегодня</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-bold text-[#FEF3C7] font-display tracking-tight leading-tight">
             Время намаза (Уфа)
           </h2>
 
-          <div className="text-xs sm:text-sm text-[#A7F3D0]/90 font-sans">
-            Миләди:{' '}
+          {/* Dual Calendar Subtitle: Gregorian (Миләди) + Islamic Hijri (Һиҗри) */}
+          <div className="text-xs sm:text-sm text-[#A7F3D0]/95 font-sans leading-relaxed">
+            <span>Миләди: </span>
             <strong className="font-bold text-[#FEF3C7]">
-              {formatMiladiFull(selectedDay.miladiDate)}
-            </strong>{' '}
-            · {selectedDay.dayOfWeekTatar} ({selectedDay.dayOfWeekRu}) · Һиҗри:{' '}
-            <strong className="font-bold text-[#FEF3C7]">{selectedDay.hijriDay}</strong>
+              {formatMiladiFull(selectedDay.miladiDate)} 2026 г.
+            </strong>
+            <span>
+              {' '}
+              · {selectedDay.dayOfWeekTatar} ({selectedDay.dayOfWeekRu}) ·{' '}
+            </span>
+            <span>Һиҗри: </span>
+            <strong className="font-bold text-[#FEF3C7]">
+              {selectedDay.hijriDay} {selectedPeriod.hijriMonthTatar} ({selectedPeriod.hijriMonthRu}){' '}
+              {selectedPeriod.hijriYear} г.х.
+            </strong>
           </div>
         </div>
 
-        {/* Date Stepper Row: <  [ Calendar 8 ноя · Якшәмбе (Воскресенье)... v ]  > */}
+        {/* Stage 1: Date Stepper Row: <  [ Calendar 8 ноя · Якшәмбе (Воскресенье) · 27 Җөмадиәл-әввәл 1448 v ]  > */}
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handlePrevDay}
             title="Предыдущий день"
-            className="w-10 h-10 rounded-xl bg-[#164A3B] hover:bg-[#1E5C4A] border border-[#3E6B58] flex items-center justify-center text-[#FEF3C7] transition-colors shrink-0"
+            className="w-10 h-10 rounded-xl bg-[#164A3B] hover:bg-[#1E5C4A] border border-[#3E6B58] flex items-center justify-center text-[#FEF3C7] transition-colors shrink-0 cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -279,7 +350,7 @@ export default function PrayerTimesBlock({
                     return (
                       <option key={day.miladiDate} value={idx}>
                         {day.miladiDate} · {day.dayOfWeekTatar} ({day.dayOfWeekRu}) ·{' '}
-                        {day.hijriDay} Һиҗри
+                        {day.hijriDay} {period.hijriMonthTatar} {period.hijriYear} Һиҗри
                         {day.isJuma ? ' ★ Җомга' : ''}
                       </option>
                     );
@@ -294,35 +365,50 @@ export default function PrayerTimesBlock({
             type="button"
             onClick={handleNextDay}
             title="Следующий день"
-            className="w-10 h-10 rounded-xl bg-[#164A3B] hover:bg-[#1E5C4A] border border-[#3E6B58] flex items-center justify-center text-[#FEF3C7] transition-colors shrink-0"
+            className="w-10 h-10 rounded-xl bg-[#164A3B] hover:bg-[#1E5C4A] border border-[#3E6B58] flex items-center justify-center text-[#FEF3C7] transition-colors shrink-0 cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* White Rounded Tray with 6 Prayer Time Pill Cards in One Single Row */}
-        <div className="-mx-2.5 sm:-mx-3 bg-white rounded-2xl px-1.5 py-2 sm:p-3 shadow-xs">
+        {/* Stage 2 & 3: White Rounded Tray with 6 Prayer Time Pill Cards in One Single Row */}
+        <div
+          role="region"
+          aria-label="Шесть времён намаза на выбранный день"
+          className="-mx-2.5 sm:-mx-3 bg-white rounded-2xl px-1.5 py-2 sm:p-3 shadow-xs space-y-2"
+        >
           <div className="grid grid-cols-6 gap-1 sm:gap-2">
             {PRAYER_COLUMNS_META.map((col) => {
               const timeValue = selectedDay[col.key];
               const isCurrent = prayerStatus.currentKey === col.key;
               const isNext = prayerStatus.nextKey === col.key;
+              const isSelectedCard = selectedCardKey === col.key;
               const compact = COMPACT_CARD_LABELS[col.key];
+              const stateBadgeText = isCurrent
+                ? ' · Текущий период'
+                : isNext
+                ? ' · Следующий период'
+                : '';
 
               return (
-                <div
+                <button
                   key={col.key}
-                  className={`rounded-xl py-2 sm:py-2.5 px-0.5 sm:px-2 border text-center flex flex-col items-center justify-between min-w-0 transition-all ${
+                  type="button"
+                  onClick={() =>
+                    setSelectedCardKey((prev) => (prev === col.key ? null : col.key))
+                  }
+                  title={`${compact.shortTatar} (${compact.shortRu}) — ${timeValue}${stateBadgeText}`}
+                  className={`rounded-xl py-2 sm:py-2.5 px-0.5 sm:px-2 border text-center flex flex-col items-center justify-between min-w-0 transition-all select-none cursor-pointer ${
                     isCurrent
                       ? 'bg-[#06372C] border-[#06372C] text-white shadow-xs'
                       : isNext
                       ? 'bg-[#FFFBEB] border-[#FACC15] text-slate-900'
-                      : 'bg-[#F8FAFC] border-slate-200/80 text-slate-900'
-                  }`}
+                      : 'bg-[#F8FAFC] border-[#E2E8F0] text-slate-900 hover:border-slate-300'
+                  } ${isSelectedCard ? 'ring-2 ring-[#06372C]/40' : ''}`}
                 >
                   <div className="w-full space-y-0.5 min-w-0">
                     <div
-                      className={`text-[8.5px] sm:text-xs font-extrabold uppercase tracking-[-0.04em] sm:tracking-tight whitespace-nowrap leading-tight ${
+                      className={`text-[8.5px] sm:text-xs font-extrabold uppercase tracking-[-0.04em] sm:tracking-tight whitespace-nowrap leading-[1.15] ${
                         isCurrent
                           ? 'text-[#EAB308]'
                           : isNext
@@ -333,8 +419,8 @@ export default function PrayerTimesBlock({
                       {compact.shortTatar}
                     </div>
                     <div
-                      className={`text-[8.5px] sm:text-[11px] whitespace-nowrap leading-tight ${
-                        isCurrent ? 'text-emerald-100/90' : 'text-slate-500'
+                      className={`text-[8.5px] sm:text-[11px] font-normal whitespace-nowrap leading-[1.15] ${
+                        isCurrent ? 'text-[#D1FAE5]/90' : 'text-[#64748B]'
                       }`}
                     >
                       {compact.shortRu}
@@ -347,18 +433,46 @@ export default function PrayerTimesBlock({
                         ? 'text-[#FEF3C7]'
                         : isNext
                         ? 'text-[#06372C]'
-                        : 'text-slate-900'
+                        : 'text-[#0F172A]'
                     }`}
                   >
                     {timeValue}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
+
+          {selectedCardKey && (
+            <div className="rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-2 text-slate-800 flex items-center justify-between gap-2 text-xs">
+              <div className="min-w-0">
+                <div className="font-bold text-[#06372C] flex flex-wrap items-center gap-1.5">
+                  <span>
+                    {COMPACT_CARD_LABELS[selectedCardKey].shortTatar} (
+                    {COMPACT_CARD_LABELS[selectedCardKey].shortRu}) —{' '}
+                    <span className="font-mono-tabular">{selectedDay[selectedCardKey]}</span>
+                  </span>
+                  <span className="text-slate-400">·</span>
+                  <span className="font-serif text-amber-800">
+                    {COMPACT_CARD_LABELS[selectedCardKey].arabicName}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600 mt-0.5">
+                  {COMPACT_CARD_LABELS[selectedCardKey].rakaatsSummary}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCardKey(null)}
+                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 shrink-0 cursor-pointer"
+              >
+                Скрыть
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Inner Dark Status, Live HH:MM:SS Countdown & Ramadan Box */}
+        {/* Stage 2: Inner Dark Status, Progress Bar, Live HH:MM:SS Countdown & Ramadan Box */}
         <div className="rounded-2xl bg-[#042B22]/90 border border-[#3E6B58]/50 p-4 sm:p-5 space-y-4">
           {/* Current & Next Prayer + Progress Bar */}
           <div className="space-y-2">
@@ -367,7 +481,8 @@ export default function PrayerTimesBlock({
             </div>
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-base sm:text-lg font-bold text-white">
-                Далее: {prayerStatus.nextPrayer.meta.tatarTitle}
+                Далее: {prayerStatus.nextPrayer.meta.tatarTitle} (
+                {COMPACT_CARD_LABELS[prayerStatus.nextKey].shortRu})
               </span>
               <span className="text-sm sm:text-base font-bold text-[#EAB308] font-mono-tabular">
                 в {prayerStatus.nextPrayer.timeStr}
@@ -534,13 +649,13 @@ export default function PrayerTimesBlock({
                   key={period.id}
                   type="button"
                   onClick={() => setTableFilterPeriod(period.id)}
-                  className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
                     tableFilterPeriod === period.id
                       ? 'bg-[#06372C] text-[#FEF3C7]'
                       : 'text-slate-700 hover:bg-stone-200/70'
                   }`}
                 >
-                  {period.shortLabel} ({period.hijriRange})
+                  {period.shortLabel} · {period.hijriMonthTatar} ({period.hijriRange})
                 </button>
               ))}
             </div>
@@ -581,13 +696,15 @@ export default function PrayerTimesBlock({
                     <div>Атна</div>
                     <div>көннәре</div>
                   </th>
-                  <th className="py-2.5 px-2 font-bold">Һиҗри</th>
+                  <th className="py-2.5 px-2 font-bold">Һиҗри (1448)</th>
                 </tr>
               </thead>
               <tbody className="font-mono-tabular">
                 {filteredTableRows.map(({ day: row, globalIdx }) => {
                   const isSelected = globalIdx === selectedDayIdx;
                   const isEvenRow = globalIdx % 2 === 1;
+                  const rowPeriod =
+                    PRAYER_PERIODS.find((p) => p.id === row.periodId) || PRAYER_PERIODS[0];
 
                   // Match the uploaded images' exact visual styling:
                   // - Juma (Friday) rows & 10 ноя (1 Hijri): solid bright green (#17A34A) with bold white text
@@ -627,13 +744,19 @@ export default function PrayerTimesBlock({
                       <td className="py-1.5 px-2 border-r border-emerald-600/30">
                         {row.isha}
                       </td>
-                      <td className="py-1.5 px-2 border-r border-emerald-600/30 font-sans font-medium">
+                      <td className="py-1.5 px-2 border-r border-emerald-600/30 font-sans font-medium whitespace-nowrap">
                         {row.miladiDate}
                       </td>
-                      <td className="py-1.5 px-2 border-r border-emerald-600/30 font-sans">
-                        {row.dayOfWeekTatar}
+                      <td className="py-1.5 px-2 border-r border-emerald-600/30 font-sans whitespace-nowrap">
+                        {row.dayOfWeekTatar}{' '}
+                        <span className="opacity-75 text-[11px]">({row.dayOfWeekShortRu})</span>
                       </td>
-                      <td className="py-1.5 px-2">{row.hijriDay}</td>
+                      <td className="py-1.5 px-2 whitespace-nowrap">
+                        <span className="font-bold">{row.hijriDay}</span>{' '}
+                        <span className="font-sans text-[11px] opacity-85 hidden sm:inline">
+                          {rowPeriod.hijriMonthTatar}
+                        </span>
+                      </td>
                     </tr>
                   );
                 })}

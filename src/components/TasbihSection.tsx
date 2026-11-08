@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_DHIKR_LIST,
   DhikrItem,
+  TASBIH_CATEGORIES,
   TasbihCategoryId,
 } from '../data/tasbihData';
 
@@ -89,7 +90,7 @@ function loadTasbihState(): StoredTasbihState {
 interface TasbihSectionProps {
   arabicScaleFactor: number;
   onChangeArabicScale: (nextScale: number) => void;
-  onOpenChapter: (chapterId: number) => void;
+  onOpenChapter: (chapterId: number, chapterNumber?: number) => void;
   onShowToast: (msg: string) => void;
   externalCategory?: TasbihCategoryId;
   externalSelectedDhikrId?: string | null;
@@ -509,10 +510,21 @@ export default function TasbihSection({
         <div className="lg:col-span-7 bg-white rounded-2xl border border-stone-200/90 p-3 sm:p-4.5 shadow-xs space-y-2 sm:space-y-2.5">
           {/* Top Bar inside Counter Card: Category & Controls */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-stone-100/90 pb-2">
-            <div className="min-w-0">
+            <div className="min-w-0 space-y-0.5">
+              {activeDhikr.chapterNumber && (
+                <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#155E4B] leading-none">
+                  {activeDhikr.duaBadge || `ГЛАВА ${activeDhikr.chapterNumber}${activeDhikr.chapterTitle ? ` · ${activeDhikr.chapterTitle}` : ''}`}
+                </div>
+              )}
               <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-display leading-tight">
                 {activeDhikr.title}
               </h2>
+              {activeDhikr.source && (
+                <div className="text-xs text-stone-500 font-medium truncate">
+                  {activeDhikr.source}
+                  {activeDhikr.chapterTitle && !activeDhikr.chapterNumber ? ` · ${activeDhikr.chapterTitle}` : ''}
+                </div>
+              )}
             </div>
 
             {/* Controls Bar: Strictly single row (flex-nowrap) */}
@@ -710,54 +722,90 @@ export default function TasbihSection({
             </div>
           </div>
 
-          {/* Hadith / Virtue Box (#FFFBEB amber callout matching Quiz explanation style) */}
-          <div className="rounded-xl bg-[#FFFBEB] border border-amber-200/90 p-3 sm:p-4 space-y-1.5 text-amber-950">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-900">
-                Достоинство и награда из Сунны
+          {/* Hadith / Virtue Box matching Dua section style */}
+          <div className="rounded-2xl bg-[#F8F6F1] border border-stone-200/90 p-3.5 sm:p-4.5 space-y-2 text-stone-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200/70 pb-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#06372C]">
+                {activeDhikr.chapterNumber
+                  ? `Глава ${activeDhikr.chapterNumber}${activeDhikr.chapterTitle ? ` · ${activeDhikr.chapterTitle}` : ''}`
+                  : 'Достоинство и награда из Сунны'}
               </div>
-              <span className="text-xs font-mono-tabular text-amber-800">
+              <span className="text-xs font-mono-tabular text-stone-500 font-medium">
                 {activeDhikr.source}
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-amber-950/90 leading-relaxed">
+            <p className="text-xs sm:text-sm text-stone-700 leading-relaxed">
+              <span className="font-bold text-[#06372C]">Достоинство из книги: </span>
               {activeDhikr.virtue}
             </p>
             {activeDhikr.relatedChapterId && (
-              <div className="pt-0.5">
+              <div className="pt-1.5 border-t border-stone-200/70 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => onOpenChapter(activeDhikr.relatedChapterId!)}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#06372C] hover:underline"
+                  onClick={() => onOpenChapter(activeDhikr.relatedChapterId!, activeDhikr.chapterNumber)}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#155E4B] hover:text-[#06372C] transition-colors"
                 >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>Открыть соответствующую главу в книге «Простые благодеяния»</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <BookOpen className="w-4 h-4 shrink-0" />
+                  <span>
+                    Открыть главу {activeDhikr.chapterNumber || ''} в книге →
+                  </span>
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column (5 cols): List of Dhikrs */}
+        {/* Right Column (5 cols): List of Dhikrs & Azkars */}
         <div className="lg:col-span-5 bg-white rounded-2xl border border-stone-200/90 p-3.5 sm:p-5 shadow-xs space-y-3">
           <div className="flex items-center justify-between border-b border-stone-100 pb-2">
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 font-display">
-                Список зикров ({filteredDhikrs.length})
+                {state.activeCategory === 'morning_evening'
+                  ? `Азкары из книги «Простые благодеяния» (${filteredDhikrs.length})`
+                  : `Список поминаний (${filteredDhikrs.length})`}
               </h2>
               <p className="text-xs text-stone-500 mt-0.5">
-                Выберите формулу поминания для отсчёта и чтения достоинств
+                {state.activeCategory === 'morning_evening'
+                  ? 'Утренние, вечерние и постоянные поминания из книги шейха Мухаммада Таки Усмани'
+                  : 'Выберите формулу поминания для отсчёта и чтения достоинств'}
               </p>
             </div>
             <button
               type="button"
               onClick={handleResetAllTasbih}
               title="Сбросить весь счётчик"
-              className="text-xs text-stone-400 hover:text-slate-800 transition-colors underline underline-offset-2 font-medium"
+              className="text-xs text-stone-400 hover:text-slate-800 transition-colors underline underline-offset-2 font-medium shrink-0"
             >
               Сбросить всё
             </button>
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1.5 p-1 bg-[#F8F6F1] rounded-xl border border-stone-200/80 overflow-x-auto">
+            {TASBIH_CATEGORIES.map((cat) => {
+              const isActive = state.activeCategory === cat.id;
+              const count =
+                cat.id === 'all'
+                  ? allDhikrs.length
+                  : allDhikrs.filter((d) => d.category === cat.id).length;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setState((prev) => ({ ...prev, activeCategory: cat.id }));
+                    if (onCategoryChange) onCategoryChange(cat.id);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
+                    isActive
+                      ? 'bg-[#1F482D] text-[#FEF3C7] shadow-xs'
+                      : 'text-stone-600 hover:text-slate-900 hover:bg-stone-200/60'
+                  }`}
+                >
+                  {cat.label} ({count})
+                </button>
+              );
+            })}
           </div>
 
           <div className="space-y-2 max-h-[760px] overflow-y-auto pr-1">
@@ -807,11 +855,29 @@ export default function TasbihSection({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
+                        {item.chapterNumber && (
+                          <div
+                            className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
+                              isSelected ? 'text-amber-300' : 'text-[#155E4B]'
+                            }`}
+                          >
+                            {item.duaBadge || `ГЛАВА ${item.chapterNumber}${item.chapterTitle ? ` · ${item.chapterTitle}` : ''}`}
+                          </div>
+                        )}
                         <div className="text-sm font-bold leading-snug break-words">
                           {item.title}
                         </div>
+                        {item.source && (
+                          <div
+                            className={`text-[11px] font-medium truncate mt-0.5 ${
+                              isSelected ? 'text-amber-200/80' : 'text-stone-500'
+                            }`}
+                          >
+                            {item.source}
+                          </div>
+                        )}
                         <div
-                          className={`text-[11px] font-mono-tabular mt-0.5 ${
+                          className={`text-[11px] font-mono-tabular mt-1 ${
                             isSelected ? 'text-amber-200/90' : 'text-stone-500'
                           }`}
                         >
@@ -838,22 +904,72 @@ export default function TasbihSection({
                     )}
                   </div>
 
+                  {/* Arabic Text */}
                   <div
                     dir="rtl"
-                    className={`font-reader text-right text-lg leading-relaxed break-words ${
+                    className={`font-reader text-right text-lg leading-relaxed break-words py-1 ${
                       isSelected ? 'text-[#FEF3C7]' : 'text-[#06372C]'
                     }`}
                   >
                     {item.arabic}
                   </div>
 
-                  <div
-                    className={`text-xs leading-relaxed break-words ${
-                      isSelected ? 'text-stone-200' : 'text-stone-600'
-                    }`}
-                  >
-                    {item.transcription}
+                  {/* Transcription & Translation */}
+                  <div className="space-y-1">
+                    <div
+                      className={`text-xs italic leading-relaxed break-words ${
+                        isSelected ? 'text-emerald-100' : 'text-stone-500'
+                      }`}
+                    >
+                      {item.transcription}
+                    </div>
+                    {item.translation && (
+                      <div
+                        className={`text-xs sm:text-sm font-medium leading-relaxed break-words ${
+                          isSelected ? 'text-white' : 'text-slate-900 font-reader'
+                        }`}
+                      >
+                        «{item.translation}»
+                      </div>
+                    )}
                   </div>
+
+                  {/* Virtue block matching Dua style */}
+                  {item.virtue && (
+                    <div
+                      className={`rounded-lg p-2.5 text-xs leading-relaxed ${
+                        isSelected
+                          ? 'bg-black/25 text-emerald-100 border border-white/10'
+                          : 'bg-white border border-stone-200/80 text-stone-700'
+                      }`}
+                    >
+                      <span className={`font-bold ${isSelected ? 'text-amber-300' : 'text-[#06372C]'}`}>
+                        Достоинство из книги:{' '}
+                      </span>
+                      {item.virtue}
+                    </div>
+                  )}
+
+                  {/* Open chapter in book button */}
+                  {item.relatedChapterId && (
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenChapter(item.relatedChapterId!, item.chapterNumber);
+                        }}
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold transition-colors ${
+                          isSelected
+                            ? 'text-[#FEF3C7] hover:underline'
+                            : 'text-[#155E4B] hover:text-[#06372C]'
+                        }`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                        <span>Открыть главу {item.chapterNumber || ''} в книге →</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

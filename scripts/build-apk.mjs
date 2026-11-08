@@ -3,870 +3,85 @@ import path from 'path';
 import crypto from 'crypto';
 import zlib from 'zlib';
 import { execSync } from 'child_process';
+import esbuild from 'esbuild';
 
 /**
- * Extracts EASY_GOOD_DEEDS_BOOK and ISLAMIC_PSYCHOLOGY_BOOK
- * and generates a complete, standalone offline HTML bundle for assets/index.html inside the APK
+ * Compiles the full React application (Prayer Times widget with Gregorian & Hijri calendars,
+ * Dua, Tasbih, Library with book covers, continuous single-page reader, footnote bottom-sheet,
+ * and end-of-chapter actions) into a standalone offline HTML bundle for assets/index.html inside the APK.
  */
-function loadBookFromTsFile(relPath, exportName) {
-  const tsSource = fs.readFileSync(path.resolve(process.cwd(), relPath), 'utf8');
-  const regex = new RegExp(`export\\s+const\\s+${exportName}\\s*:\\s*BookData\\s*=\\s*`);
-  const jsCode = tsSource.replace(/import\s+type\s+.*?;\s*/g, '').replace(regex, 'return ');
-  return new Function(jsCode)();
-}
-
 function buildStandaloneReaderHtml() {
-  const rawBooks = [
-    loadBookFromTsFile('src/data/easyGoodDeedsData.ts', 'EASY_GOOD_DEEDS_BOOK'),
-  ];
+  // 1. Run Vite build so dist/assets/*.css has the latest compiled Tailwind v4 styles
+  execSync('npx vite build', { stdio: 'inherit' });
 
-  const booksPayload = rawBooks.map((book) => ({
-    id: book.id,
-    title: book.title,
-    author: book.author,
-    year: book.year,
-    genre: book.genre,
-    description: book.description,
-    bg: book.coverPalette.bg,
-    accent: book.coverPalette.accent,
-    chapters: book.chapters.map((ch, idx) => ({
-      id: ch.id,
-      bookId: book.id,
-      index: idx,
-      order: ch.chapterOrder,
-      title: ch.title,
-      subtitle: `Часть ${ch.chapterOrder} из ${book.chapters.length} · Проверочных вопросов: ${ch.quiz.length}`,
-      content: ch.content,
-      footnotes: ch.footnotes || [],
-      questions: ch.quiz.map((q) => ({
-        q: q.question,
-        opts: q.options,
-        correct: q.correctAnswerIndex,
-        exp: q.explanation,
-      })),
-    })),
-  }));
+  const distAssetsDir = path.resolve(process.cwd(), 'dist/assets');
+  const cssFiles = fs.existsSync(distAssetsDir)
+    ? fs.readdirSync(distAssetsDir).filter((f) => f.endsWith('.css'))
+    : [];
+  const compiledCss = cssFiles
+    .map((f) => fs.readFileSync(path.join(distAssetsDir, f), 'utf8'))
+    .join('\n');
 
-  const serializedBooks = JSON.stringify(booksPayload);
+  // 2. Bundle src/main.tsx into a single self-contained IIFE script via esbuild
+  const bundleResult = esbuild.buildSync({
+    entryPoints: [path.resolve(process.cwd(), 'src/main.tsx')],
+    bundle: true,
+    minify: true,
+    format: 'iife',
+    platform: 'browser',
+    target: ['es2020'],
+    jsx: 'automatic',
+    write: false,
+    loader: {
+      '.css': 'empty',
+      '.png': 'dataurl',
+      '.svg': 'dataurl',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+    },
+  });
+
+  let appJs = Buffer.from(bundleResult.outputFiles[0].contents).toString('utf8');
+
+  // 3. Inline local image assets as Base64 Data URLs for 100% offline Android WebView rendering
+  const iconSvgPath = path.resolve(process.cwd(), 'public/icon.svg');
+  if (fs.existsSync(iconSvgPath)) {
+    const iconB64 = fs.readFileSync(iconSvgPath).toString('base64');
+    appJs = appJs.split('/icon.svg').join(`data:image/svg+xml;base64,${iconB64}`);
+  }
+
+  const coverPngPath = path.resolve(
+    process.cwd(),
+    'public/assets/aistudio/____________60fd26fa.png'
+  );
+  if (fs.existsSync(coverPngPath)) {
+    const coverB64 = fs.readFileSync(coverPngPath).toString('base64');
+    appJs = appJs
+      .split('/assets/aistudio/____________60fd26fa.png')
+      .join(`data:image/png;base64,${coverB64}`);
+  }
+
+  // Prevent any accidental </script> sequence inside string literals from closing the script tag
+  const safeAppJs = appJs.replace(/<\/script/gi, '<\\/script');
 
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Простые благодеяния — Интерактивная Читалка</title>
+<title>Простые благодеяния — Намаз, Дуа, Тасбих и Книги</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700;800&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body {
-    margin: 0; padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #F8F6F1; color: #1C1B1F;
-    user-select: none; -webkit-user-select: none;
-    overflow-x: hidden;
-  }
-  .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
-  .top-bar {
-    position: sticky; top: 0; z-index: 30;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px; background: #06372C; color: #FEF3C7;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
-  .top-bar h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .book-tabs {
-    display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 2px;
-  }
-  .book-tab {
-    flex: 1; min-width: 145px; padding: 11px 12px; border-radius: 12px;
-    border: 2px solid #CBD5E1; background: #FFFFFF; color: #1E293B;
-    font-size: 13px; font-weight: 700; cursor: pointer; text-align: left;
-  }
-  .book-tab-active {
-    border-color: #06372C; background: #06372C; color: #FEF3C7;
-  }
-  .btn {
-    border: none; border-radius: 12px; padding: 12px 16px;
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    transition: opacity 0.15s, transform 0.1s;
-  }
-  .btn:active { transform: scale(0.98); }
-  .btn-primary { background: #06372C; color: #FEF3C7; }
-  .btn-emerald { background: #15803D; color: #FFFFFF; }
-  .btn-amber { background: #B45309; color: #FFFFFF; }
-  .btn-outline { background: transparent; border: 1.5px solid #CBD5E1; color: #1E293B; }
-  .btn:disabled { opacity: 0.4; pointer-events: none; }
-  .container { padding: 16px; flex: 1; max-width: 720px; margin: 0 auto; width: 100%; }
-  .card {
-    background: #FFFFFF; border-radius: 16px; padding: 18px;
-    border: 1px solid #E5E0D5; margin-bottom: 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  }
-  .book-header {
-    background: #06372C; color: #FEF3C7; border-radius: 16px; padding: 20px; margin-bottom: 16px;
-    border: 1px solid #B45309;
-  }
-  .book-header h2 { margin: 0 0 6px 0; font-size: 22px; font-family: Georgia, serif; }
-  .book-header p { margin: 0; font-size: 13px; color: #FDE68A; opacity: 0.92; line-height: 1.48; }
-  .search-input {
-    width: 100%; padding: 12px 14px; border-radius: 12px;
-    border: 1px solid #CBD5E1; background: #FFFFFF; color: #0F172A;
-    font-size: 14px; margin-bottom: 14px; outline: none;
-  }
-  .progress-track { width: 100%; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden; margin-top: 10px; }
-  .progress-fill { height: 100%; background: #F59E0B; transition: width 0.3s; }
-  .chapter-card { display: flex; flex-direction: column; gap: 10px; }
-  .chapter-locked { opacity: 0.6; background: #F1EFEA; }
-  .meta-line { font-size: 12px; color: #64748B; font-family: monospace; }
-  .reader-screen {
-    position: fixed; inset: 0; z-index: 40;
-    display: flex; flex-direction: column; justify-content: space-between;
-  }
-  .reader-hud-top {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px; border-bottom: 1px solid rgba(128,128,128,0.2);
-  }
-  .reader-page-area {
-    flex: 1; padding: 20px 22px; display: flex; flex-direction: column; justify-content: space-between;
-    overflow: hidden; position: relative;
-  }
-  .reader-text {
-    font-family: Georgia, "Times New Roman", serif;
-    line-height: 1.55;
-    flex: 1; overflow-y: auto; padding-right: 6px;
-  }
-  ::-webkit-scrollbar { width: 12px; height: 12px; }
-  ::-webkit-scrollbar-track {
-    background: rgba(214, 208, 196, 0.05);
-    border-right: 4px solid transparent; border-left: 4px solid transparent;
-    background-clip: padding-box; border-radius: 9999px;
-  }
-  ::-webkit-scrollbar-thumb {
-    background-color: #06372C;
-    border-right: 4px solid transparent; border-left: 4px solid transparent;
-    background-clip: padding-box; border-radius: 9999px;
-  }
-  ::-webkit-scrollbar-thumb:active {
-    background-color: #06372C;
-  }
-  input[type="range"] {
-    -webkit-appearance: none; appearance: none;
-    width: 100%; height: 6px; border-radius: 9999px;
-    background: rgba(6, 55, 44, 0.2); outline: none;
-    accent-color: #06372C;
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 20px; height: 20px; border-radius: 9999px;
-    background: #06372C; border: 2px solid #FEF3C7;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.25); cursor: pointer;
-  }
-  .reader-v-scrollbar-track {
-    position: absolute; top: 14px; bottom: 68px; right: 4px; width: 4px;
-    background: rgba(214, 208, 196, 0.05); border-radius: 9999px; z-index: 25;
-    transition: opacity 0.25s ease;
-  }
-  .lib-v-scrollbar-track {
-    position: fixed; top: 62px; bottom: 10px; right: 4px; width: 4px;
-    background: rgba(214, 208, 196, 0.05); border-radius: 9999px; z-index: 35;
-    pointer-events: none; transition: opacity 0.25s ease;
-  }
-  .reader-v-scrollbar-thumb {
-    width: 4px; border-radius: 9999px; background: #06372C;
-    position: relative; opacity: 0.85;
-    transition: top 0.12s ease, height 0.12s ease, opacity 0.18s ease;
-  }
-  .reader-v-scrollbar-track:active .reader-v-scrollbar-thumb,
-  .reader-v-scrollbar-track.sb-active .reader-v-scrollbar-thumb,
-  .lib-v-scrollbar-track.sb-active .reader-v-scrollbar-thumb {
-    opacity: 1;
-  }
-  .reader-footer {
-    padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.2);
-    display: flex; align-items: center; justify-content: space-between; min-height: 52px;
-  }
-  .settings-sheet {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
-    border-radius: 20px 20px 0 0; padding: 20px;
-    box-shadow: 0 -8px 24px rgba(0,0,0,0.25);
-    border-top: 1px solid rgba(128,128,128,0.25);
-  }
-  .fn-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 1px 5px; margin: 0 2px; font-size: 11px; font-family: monospace; font-weight: 700;
-    border-radius: 5px; background: rgba(245, 158, 11, 0.22); color: #B45309;
-    border: 1px solid rgba(180, 83, 9, 0.4); vertical-align: super; cursor: pointer;
-  }
-  .fn-popup {
-    margin-top: 10px; padding: 12px 14px; border-radius: 12px;
-    border: 1px solid rgba(180, 83, 9, 0.35); font-size: 13px; line-height: 1.45;
-    max-height: 36vh; overflow-y: auto;
-  }
-  .option-btn {
-    width: 100%; text-align: left; padding: 14px 16px; border-radius: 12px;
-    border: 2px solid #E2E8F0; background: #F8FAFC; color: #0F172A;
-    font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
-  }
-  .option-selected { border-color: #06372C; background: #ECFDF5; font-weight: 600; }
-  .option-correct { border-color: #15803D; background: #DCFCE7; color: #14532D; font-weight: 600; }
-  .option-wrong { border-color: #B91C1C; background: #FEE2E2; color: #7F1D1D; }
-  .explanation-box {
-    background: #FFFBEB; border: 1px solid #FDE68A; color: #78350F;
-    padding: 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; margin-top: 12px;
-  }
+${compiledCss}
 </style>
 </head>
-<body>
-<div id="app" class="app-shell"></div>
+<body class="bg-[#F8F6F1] text-[#1C1B1F] antialiased selection:bg-amber-500/20">
+<div id="root"></div>
 <script>
-const BOOKS = ${serializedBooks};
-
-const THEMES = {
-  LIGHT: { name: "Светлая", bg: "#FAF9F6", fg: "#1C1B1F", surface: "#EFECE6" },
-  SEPIA: { name: "Сепия", bg: "#F4ECD8", fg: "#3E3023", surface: "#E6DBC2" },
-  NIGHT: { name: "Ночная", bg: "#141518", fg: "#D8DAE0", surface: "#202227" }
-};
-
-function createDefaultProgress() {
-  const prog = {};
-  BOOKS.forEach((b) => {
-    b.chapters.forEach((c) => {
-      prog[c.id] = {
-        status: "AVAILABLE",
-        offset: 0,
-        bestScore: 0
-      };
-    });
-  });
-  return prog;
-}
-
-let state = {
-  screen: "library",
-  bookId: BOOKS[0].id,
-  searchQuery: "",
-  chapterId: BOOKS[0].chapters[0].id,
-  pageIndex: 0,
-  charOffset: 0,
-  controlsVisible: true,
-  settingsOpen: false,
-  activeFnId: null,
-  fontSize: 18,
-  arabicScale: 1.35,
-  theme: "LIGHT",
-  qIndex: 0,
-  selectedOpt: null,
-  submitted: false,
-  correctCount: 0,
-  quizDone: false,
-  progress: createDefaultProgress()
-};
-
-const ARABIC_WORD_TASHKEEL_RE = /(?:[\\u0610-\\u061A\\u0620-\\u065F\\u066E-\\u06D3\\u06D5-\\u06ED\\u0640\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF])+/g;
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function isArabicParagraphLine(line) {
-  const hasArabic = /[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]/.test(line);
-  if (!hasArabic) return false;
-  const hasCyrOrLat = /[А-Яа-яЁёA-Za-z]/.test(line);
-  return !hasCyrOrLat;
-}
-
-function formatArabicInChunk(chunk, baseFontSize, arabicScale) {
-  if (!chunk) return "";
-  const scale = Number(arabicScale) || 1.0;
-  if (Math.abs(scale - 1.0) < 0.001) {
-    return escapeHtml(chunk);
-  }
-  const scaledPx = (baseFontSize * scale).toFixed(1);
-  let lastIdx = 0;
-  let out = "";
-  ARABIC_WORD_TASHKEEL_RE.lastIndex = 0;
-  let m;
-  while ((m = ARABIC_WORD_TASHKEEL_RE.exec(chunk)) !== null) {
-    if (m.index > lastIdx) {
-      out += escapeHtml(chunk.slice(lastIdx, m.index));
-    }
-    out += '<span style="font-size:' + scaledPx + 'px;">' + escapeHtml(m[0]) + '</span>';
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx === 0) return escapeHtml(chunk);
-  if (lastIdx < chunk.length) {
-    out += escapeHtml(chunk.slice(lastIdx));
-  }
-  return out;
-}
-
-function formatLineMixedArabicHtml(line, baseFontSize, arabicScale, footnotes) {
-  if (!line) return "";
-  const fnList = footnotes || [];
-  if (!fnList.length) {
-    return formatArabicInChunk(line, baseFontSize, arabicScale);
-  }
-  const fnRe = /\\[(\\d+)\\]/g;
-  let lastIdx = 0;
-  let out = "";
-  let m;
-  while ((m = fnRe.exec(line)) !== null) {
-    if (m.index > lastIdx) {
-      out += formatArabicInChunk(line.slice(lastIdx, m.index), baseFontSize, arabicScale);
-    }
-    const fnNum = m[1];
-    const hasFn = fnList.some(f => String(f.id) === String(fnNum));
-    if (hasFn) {
-      out += '<button type="button" class="fn-badge" onclick="openFn(event, \\'' + fnNum + '\\')">[' + fnNum + ']</button>';
-    } else {
-      out += escapeHtml(m[0]);
-    }
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx === 0) return formatArabicInChunk(line, baseFontSize, arabicScale);
-  if (lastIdx < line.length) {
-    out += formatArabicInChunk(line.slice(lastIdx), baseFontSize, arabicScale);
-  }
-  return out;
-}
-
-function formatMixedArabicHtml(text, baseFontSize, arabicScale, footnotes) {
-  if (!text) return "";
-  return String(text)
-    .split("\\n")
-    .map((line) => {
-      if (!line.trim()) return '<div style="height:10px"></div>';
-      const isRtl = isArabicParagraphLine(line);
-      const inner = formatLineMixedArabicHtml(line, baseFontSize, arabicScale, footnotes);
-      return '<div dir="' + (isRtl ? 'rtl' : 'ltr') + '" style="text-align:' + (isRtl ? 'right' : 'left') + '">' + inner + '</div>';
-    })
-    .join("");
-}
-
-try {
-  const saved = localStorage.getItem("ir_apk_two_books_v3");
-  if (saved) {
-    const parsed = JSON.parse(saved);
-    const mergedProgress = Object.assign(createDefaultProgress(), parsed.progress || {});
-    Object.keys(mergedProgress).forEach((k) => {
-      if (mergedProgress[k] && mergedProgress[k].status === "LOCKED") {
-        mergedProgress[k].status = "AVAILABLE";
-      }
-    });
-    state = Object.assign(state, parsed, {
-      progress: mergedProgress
-    });
-  }
-} catch (e) {}
-
-function saveState() {
-  try { localStorage.setItem("ir_apk_two_books_v3", JSON.stringify(state)); } catch (e) {}
-}
-
-function getActiveBook() {
-  return BOOKS.find(b => b.id === state.bookId) || BOOKS[0];
-}
-
-function getActiveChapter() {
-  const b = getActiveBook();
-  return b.chapters.find(c => c.id === state.chapterId) || b.chapters[0];
-}
-
-function paginate(text, fontSize) {
-  const w = Math.max(280, window.innerWidth - 44);
-  const h = Math.max(260, window.innerHeight - 190);
-  const charsPerLine = Math.max(22, Math.floor(w / (fontSize * 0.55)));
-  const maxLines = Math.max(5, Math.floor(h / (fontSize * 1.55)));
-  const pages = [];
-  let pos = 0;
-  while (pos < text.length) {
-    while (pos < text.length && (text[pos] === ' ' || text[pos] === '\\n')) pos++;
-    if (pos >= text.length) break;
-    let cur = pos, lines = 0;
-    while (cur < text.length && lines < maxLines) {
-      const nl = text.indexOf('\\n', cur);
-      const maxEnd = Math.min(cur + charsPerLine, text.length);
-      if (nl !== -1 && nl <= maxEnd) {
-        cur = nl + 1; lines += 1.3;
-      } else {
-        let cut = maxEnd;
-        if (cut < text.length && !/\\s/.test(text[cut - 1]) && !/\\s/.test(text[cut])) {
-          let b = cut - 1;
-          while (b > cur && !/\\s/.test(text[b])) b--;
-          if (b > cur) cut = b + 1;
-        }
-        cur = cut; lines += 1;
-      }
-    }
-    const end = Math.max(pos + 1, Math.min(cur, text.length));
-    pages.push({ start: pos, end: end, text: text.slice(pos, end).trimEnd() });
-    pos = end;
-  }
-  return pages.length ? pages : [{ start: 0, end: text.length, text }];
-}
-
-function render() {
-  saveState();
-  const root = document.getElementById("app");
-  const book = getActiveBook();
-  const ch = getActiveChapter();
-
-  if (state.screen === "library") {
-    const passedCount = book.chapters.filter(c => state.progress[c.id] && state.progress[c.id].status === "PASSED").length;
-    const ratio = Math.round((passedCount / book.chapters.length) * 100);
-    const q = (state.searchQuery || "").trim().toLowerCase();
-    const visibleChapters = !q
-      ? book.chapters
-      : book.chapters.filter(c => c.title.toLowerCase().includes(q) || c.content.toLowerCase().includes(q));
-
-    root.innerHTML = \`
-      <div class="top-bar" style="background:\${book.bg}">
-        <div style="display:flex;align-items:center;gap:10px">
-          <img src="data:image/svg+xml;base64,${fs.readFileSync(path.resolve(process.cwd(), 'public/icon.svg')).toString('base64')}" style="width:30px;height:30px;border-radius:7px;flex-shrink:0" alt="Иконка" />
-          <h1>\${book.title}</h1>
-        </div>
-        <span style="font-size:12px;opacity:0.85">\${passedCount}/\${book.chapters.length} глав</span>
-      </div>
-      <div class="container">
-        \${BOOKS.length > 1 ? \`
-        <div class="book-tabs">
-          \${BOOKS.map(b => \`
-            <button class="book-tab \${b.id === book.id ? 'book-tab-active' : ''}" style="\${b.id === book.id ? 'background:' + b.bg + ';border-color:' + b.bg : ''}" onclick="selectBook(\${b.id})">
-              <div style="font-size:10px;opacity:0.75;margin-bottom:2px">\${b.year} · \${b.chapters.length} глав</div>
-              <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\${b.title}</div>
-            </button>
-          \`).join('')}
-        </div>
-        \` : ''}
-
-        <div class="book-header" style="background:\${book.bg}">
-          <div style="font-size:11px;letter-spacing:0.6px;margin-bottom:6px;opacity:0.85">\${book.author.toUpperCase()} · \${book.year}</div>
-          <h2>\${book.title}</h2>
-          <p>\${book.description}</p>
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:14px;font-weight:600">
-            <span>Прогресс чтения и тестов</span><span>\${passedCount} / \${book.chapters.length} глав (\${ratio}%)</span>
-          </div>
-          <div class="progress-track"><div class="progress-fill" style="width:\${ratio}%"></div></div>
-        </div>
-
-        <input
-          id="searchBox"
-          class="search-input"
-          type="text"
-          placeholder="Поиск по главам и темам книги «\${book.title}»..."
-          value="\${state.searchQuery.replace(/"/g, '&quot;')}"
-          oninput="onSearchInput(this.value)"
-        />
-
-        \${visibleChapters.map(c => {
-          const p = state.progress[c.id] || { status: "AVAILABLE", offset: 0, bestScore: 0 };
-          const passed = p.status === "PASSED";
-          return \`
-            <div class="card chapter-card">
-              \${passed ? '<div class="meta-line">Пройдено · Лучший результат: ' + p.bestScore + '%</div>' : ''}
-              <div style="font-size:17px;font-weight:700;font-family:Georgia,serif;line-height:1.35">\${c.title}</div>
-              <div style="font-size:12px;color:#475569">\${c.subtitle}</div>
-              <div style="display:flex;gap:8px;margin-top:6px">
-                <button class="btn btn-primary" style="flex:1;background:\${book.bg}" onclick="openChapter(\${c.id})">
-                  \${p.offset > 0 ? 'Продолжить чтение' : 'Читать главу'}
-                </button>
-                <button class="btn btn-outline" onclick="startQuiz(\${c.id})">Тест</button>
-              </div>
-            </div>
-          \`;
-        }).join('')}
-        <div id="libSbTrack" class="lib-v-scrollbar-track">
-          <div id="libSbThumb" class="reader-v-scrollbar-thumb" style="height:14%;top:0%"></div>
-        </div>
-      </div>
-    \`;
-  } else if (state.screen === "reader") {
-    const pages = paginate(ch.content, state.fontSize);
-    let idx = pages.findIndex(p => state.charOffset >= p.start && state.charOffset < p.end);
-    if (idx === -1) idx = Math.min(state.pageIndex, pages.length - 1);
-    state.pageIndex = Math.max(0, idx);
-    const page = pages[state.pageIndex];
-    const t = THEMES[state.theme];
-    const isLast = state.pageIndex === pages.length - 1;
-    const arScale = Number(state.arabicScale) || 1.35;
-    const formattedPageHtml = formatMixedArabicHtml(page.text, state.fontSize, arScale, ch.footnotes);
-    const activeFn = state.activeFnId && ch.footnotes ? ch.footnotes.find(f => String(f.id) === String(state.activeFnId)) : null;
-
-    const totalP = Math.max(1, pages.length);
-    const thumbHPct = Math.max(12, Math.min(100, 100 / totalP));
-    const thumbTopPct = totalP > 1 ? (state.pageIndex / (totalP - 1)) * (100 - thumbHPct) : 0;
-
-    root.innerHTML = \`
-      <div class="reader-screen" style="background:\${t.bg};color:\${t.fg}">
-        \${state.controlsVisible ? \`
-          <div class="reader-hud-top" style="background:\${t.surface}">
-            <button class="btn btn-outline" style="padding:8px 12px;color:\${t.fg}" onclick="goLibrary()">← Оглавление</button>
-            <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">\${ch.title}</div>
-            <button class="btn btn-outline" style="padding:8px 12px;color:\${t.fg}" onclick="toggleSettings()">Аа</button>
-          </div>
-        \` : '<div style="height:12px"></div>'}
-        <div class="reader-page-area" onclick="handleReaderTap(event, \${pages.length})">
-          <div id="readerSbTrack" class="reader-v-scrollbar-track" onclick="onScrollbarTap(event, \${pages.length})" ontouchstart="onScrollbarTouch(event, \${pages.length})" ontouchmove="onScrollbarTouch(event, \${pages.length})">
-            <div class="reader-v-scrollbar-thumb" style="height:\${thumbHPct}%;top:\${thumbTopPct}%"></div>
-          </div>
-          <div class="reader-text" style="font-size:\${state.fontSize}px;line-height:\${Math.max(1.55, arScale * 1.38).toFixed(2)}">\${formattedPageHtml}</div>
-          \${activeFn ? \`
-            <div class="fn-popup" style="background:\${t.surface};color:\${t.fg}" onclick="event.stopPropagation()">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
-                <strong style="color:#B45309">Сноска [\${activeFn.id}]</strong>
-                <button class="btn btn-outline" style="padding:2px 8px;font-size:11px;color:\${t.fg}" onclick="closeFn()">Закрыть</button>
-              </div>
-              <div>\${formatMixedArabicHtml(activeFn.text, 14, arScale, [])}</div>
-            </div>
-          \` : ''}
-          <div class="reader-footer" onclick="event.stopPropagation()">
-            <div style="display:flex;gap:6px">
-              <button class="btn btn-outline" style="padding:8px 12px;color:\${t.fg}" \${state.pageIndex === 0 ? 'disabled' : ''} onclick="turnPage(-1, \${pages.length})">←</button>
-              <button class="btn btn-outline" style="padding:8px 12px;color:\${t.fg}" \${isLast ? 'disabled' : ''} onclick="turnPage(1, \${pages.length})">→</button>
-            </div>
-            <span style="font-size:12px;opacity:0.75;font-family:monospace">Стр. \${state.pageIndex + 1} / \${pages.length}</span>
-            \${isLast ? \`<button class="btn btn-amber" onclick="startQuiz(\${ch.id})">Пройти тест →</button>\` : ''}
-          </div>
-        </div>
-        \${state.settingsOpen ? \`
-          <div class="settings-sheet" style="background:\${t.surface};color:\${t.fg}" onclick="event.stopPropagation()">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-              <strong>Настройки чтения</strong>
-              <button class="btn btn-outline" style="padding:6px 12px;color:\${t.fg}" onclick="toggleSettings()">Готово</button>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-              <span>Размер шрифта: <b>\${state.fontSize} sp</b></span>
-              <div style="display:flex;gap:8px">
-                <button class="btn btn-outline" style="color:\${t.fg}" onclick="changeFont(-2)">А-</button>
-                <button class="btn btn-outline" style="color:\${t.fg}" onclick="changeFont(2)">А+</button>
-              </div>
-            </div>
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:14px">
-                <span>Масштаб арабской вязи: <b>\${arScale.toFixed(2)}x (\${(state.fontSize * arScale).toFixed(1)} sp)</b></span>
-                <button class="btn btn-outline" style="padding:4px 8px;font-size:11px;color:\${t.fg}" onclick="changeArabicScale(1.0)">1.0x</button>
-              </div>
-              <input type="range" min="1.0" max="2.0" step="0.05" value="\${arScale}" style="width:100%" oninput="changeArabicScale(this.value)" />
-            </div>
-            <div style="display:flex;gap:8px">
-              \${Object.keys(THEMES).map(k => \`
-                <button class="btn" style="flex:1;background:\${THEMES[k].bg};color:\${THEMES[k].fg};border:2px solid \${state.theme === k ? '#B45309' : '#94A3B8'}" onclick="setTheme('\${k}')">\${THEMES[k].name}</button>
-              \`).join('')}
-            </div>
-          </div>
-        \` : ''}
-      </div>
-    \`;
-  } else if (state.screen === "quiz") {
-    if (!state.quizDone) {
-      const q = ch.questions[state.qIndex];
-      root.innerHTML = \`
-        <div class="top-bar" style="background:\${book.bg}">
-          <button class="btn" style="background:transparent;color:#FEF3C7;padding:4px 8px" onclick="openChapter(\${ch.id})">← К главе</button>
-          <h1>Вопрос \${state.qIndex + 1} из \${ch.questions.length}</h1>
-          <span style="font-size:12px">Верно: \${state.correctCount}</span>
-        </div>
-        <div class="container">
-          <div class="card">
-            <div style="font-size:12px;color:#64748B;margin-bottom:6px">\${book.title} · \${ch.title}</div>
-            <div style="font-size:18px;font-weight:700;margin-bottom:16px;line-height:1.35">\${q.q}</div>
-            \${q.opts.map((opt, i) => {
-              let cls = "option-btn";
-              if (state.submitted) {
-                if (i === q.correct) cls += " option-correct";
-                else if (i === state.selectedOpt) cls += " option-wrong";
-              } else if (i === state.selectedOpt) {
-                cls += " option-selected";
-              }
-              return \`<button class="\${cls}" onclick="selectOpt(\${i})"><span><b>\${String.fromCharCode(65+i)}.</b> \${opt}</span></button>\`;
-            }).join('')}
-            \${state.submitted ? \`<div class="explanation-box"><b>Пояснение:</b> \${q.exp}</div>\` : ''}
-            <div style="margin-top:16px">
-              \${!state.submitted
-                ? \`<button class="btn btn-primary" style="width:100%;background:\${book.bg}" \${state.selectedOpt === null ? 'disabled' : ''} onclick="submitAns()">Проверить ответ</button>\`
-                : \`<button class="btn btn-primary" style="width:100%;background:\${book.bg}" onclick="nextQ()">\${state.qIndex + 1 < ch.questions.length ? 'Следующий вопрос →' : 'Завершить тест'}</button>\`
-              }
-            </div>
-          </div>
-        </div>
-      \`;
-    } else {
-      const score = Math.round((state.correctCount / ch.questions.length) * 100);
-      const passed = score >= 75;
-      const nextCh = book.chapters.find(c => c.index === ch.index + 1);
-      root.innerHTML = \`
-        <div class="top-bar" style="background:\${book.bg}"><h1>Результат теста</h1></div>
-        <div class="container">
-          <div class="card" style="text-align:center;padding:28px 18px">
-            <div style="font-size:48px;font-weight:800;color:\${passed ? '#15803D' : '#B91C1C'}">\${score}%</div>
-            <h2 style="margin:8px 0">\${passed ? 'Глава успешно пройдена!' : 'Тест не пройден'}</h2>
-            <p style="color:#475569;font-size:14px;line-height:1.5">
-              Правильных ответов: \${state.correctCount} из \${ch.questions.length}.
-              \${passed ? (nextCh ? 'Следующая глава («' + nextCh.title + '») разблокирована!' : 'Вы прошли все главы книги «' + book.title + '»!') : 'Для открытия следующей главы необходимо набрать минимум 75%.'}
-            </p>
-            <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
-              \${passed && nextCh ? \`<button class="btn btn-emerald" onclick="openChapter(\${nextCh.id})">Следующая глава →</button>\` : ''}
-              <button class="btn btn-primary" style="background:\${book.bg}" onclick="openChapter(\${ch.id})">\${passed ? 'Вернуться к главе' : 'Перечитать главу'}</button>
-              <button class="btn btn-outline" onclick="startQuiz(\${ch.id})">Повторить тест</button>
-              <button class="btn btn-outline" onclick="goLibrary()">В библиотеку</button>
-            </div>
-          </div>
-        </div>
-      \`;
-    }
-  }
-}
-
-function pushHistoryLevel(tag) {
-  try {
-    history.pushState({ tag: tag, ts: Date.now() }, "", "#" + tag);
-  } catch (e) {}
-}
-
-window.selectBook = (bookId) => {
-  state.bookId = bookId;
-  const b = getActiveBook();
-  state.chapterId = b.chapters[0].id;
-  render();
-};
-window.onSearchInput = (val) => {
-  const wasEmpty = !state.searchQuery;
-  state.searchQuery = val;
-  if (wasEmpty && val) {
-    pushHistoryLevel("search");
-  }
-  render();
-  const input = document.getElementById("searchBox");
-  if (input) {
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  }
-};
-window.goLibrary = () => {
-  state.settingsOpen = false;
-  state.activeFnId = null;
-  if (state.screen !== "library") {
-    state.screen = "library";
-    render();
-    if (window.location.hash && window.location.hash !== "#library") {
-      try { history.back(); } catch (e) {}
-    }
-  } else {
-    render();
-  }
-};
-window.openChapter = (id) => {
-  const fromLibrary = state.screen === "library";
-  state.chapterId = id;
-  state.charOffset = (state.progress[id] && state.progress[id].offset) || 0;
-  state.settingsOpen = false;
-  state.activeFnId = null;
-  state.screen = "reader";
-  if (fromLibrary) {
-    pushHistoryLevel("reader-" + id);
-  }
-  render();
-};
-window.openFn = (e, fnId) => {
-  if (e) e.stopPropagation();
-  if (String(state.activeFnId) === String(fnId)) {
-    window.closeFn();
-    return;
-  }
-  const wasNull = !state.activeFnId;
-  state.activeFnId = String(fnId);
-  if (wasNull) {
-    pushHistoryLevel("fn-" + fnId);
-  }
-  render();
-};
-window.closeFn = () => {
-  if (state.activeFnId) {
-    state.activeFnId = null;
-    render();
-    if (window.location.hash.indexOf("#fn-") === 0) {
-      try { history.back(); } catch (e) {}
-    }
-  }
-};
-window.turnPage = (delta, totalPages) => {
-  const ch = getActiveChapter();
-  const pages = paginate(ch.content, state.fontSize);
-  const nextIdx = Math.min(Math.max(0, state.pageIndex + delta), totalPages - 1);
-  state.pageIndex = nextIdx;
-  state.charOffset = pages[state.pageIndex].start;
-  state.progress[state.chapterId].offset = state.charOffset;
-  state.activeFnId = null;
-  render();
-};
-window.seekToY = (clientY, totalPages) => {
-  const track = document.getElementById("readerSbTrack");
-  if (!track || totalPages <= 1) return;
-  const rect = track.getBoundingClientRect();
-  const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)));
-  const targetIdx = Math.round(ratio * (totalPages - 1));
-  if (targetIdx !== state.pageIndex) {
-    const ch = getActiveChapter();
-    const pages = paginate(ch.content, state.fontSize);
-    state.pageIndex = targetIdx;
-    state.charOffset = pages[state.pageIndex].start;
-    state.progress[state.chapterId].offset = state.charOffset;
-    state.activeFnId = null;
-    render();
-  }
-  const updatedTrack = document.getElementById("readerSbTrack");
-  if (updatedTrack) {
-    updatedTrack.classList.add("sb-active");
-    clearTimeout(window.__sbTimer);
-    window.__sbTimer = setTimeout(() => {
-      const t = document.getElementById("readerSbTrack");
-      if (t) t.classList.remove("sb-active");
-    }, 1200);
-  }
-};
-window.onScrollbarTap = (e, totalPages) => {
-  if (e) e.stopPropagation();
-  window.seekToY(e.clientY, totalPages);
-};
-window.onScrollbarTouch = (e, totalPages) => {
-  if (e) {
-    e.stopPropagation();
-    if (e.touches && e.touches[0]) {
-      window.seekToY(e.touches[0].clientY, totalPages);
-    }
-  }
-};
-window.handleReaderTap = (e, totalPages) => {
-  if (state.settingsOpen) { window.toggleSettings(); return; }
-  if (state.activeFnId) { window.closeFn(); return; }
-  const x = e.clientX;
-  const w = window.innerWidth;
-  if (x < w * 0.25) {
-    if (state.pageIndex > 0) window.turnPage(-1, totalPages);
-  } else if (x > w * 0.75) {
-    if (state.pageIndex < totalPages - 1) window.turnPage(1, totalPages);
-  } else {
-    state.controlsVisible = !state.controlsVisible;
-    render();
-  }
-};
-window.toggleSettings = () => {
-  if (!state.settingsOpen) {
-    state.settingsOpen = true;
-    pushHistoryLevel("settings");
-    render();
-  } else {
-    state.settingsOpen = false;
-    render();
-    if (window.location.hash === "#settings") {
-      try { history.back(); } catch (e) {}
-    }
-  }
-};
-window.changeFont = (d) => { state.fontSize = Math.min(28, Math.max(14, state.fontSize + d)); render(); };
-window.changeArabicScale = (val) => { state.arabicScale = Math.min(2.0, Math.max(1.0, parseFloat(val) || 1.0)); render(); };
-window.setTheme = (t) => { state.theme = t; render(); };
-window.startQuiz = (id) => {
-  const fromOther = state.screen !== "quiz";
-  state.chapterId = id; state.qIndex = 0; state.selectedOpt = null;
-  state.submitted = false; state.correctCount = 0; state.quizDone = false;
-  state.settingsOpen = false; state.activeFnId = null;
-  state.screen = "quiz";
-  if (fromOther) {
-    pushHistoryLevel("quiz-" + id);
-  }
-  render();
-};
-window.selectOpt = (i) => { if (!state.submitted) { state.selectedOpt = i; render(); } };
-window.submitAns = () => {
-  if (state.selectedOpt === null || state.submitted) return;
-  const ch = getActiveChapter();
-  if (state.selectedOpt === ch.questions[state.qIndex].correct) state.correctCount++;
-  state.submitted = true; render();
-};
-window.nextQ = () => {
-  const book = getActiveBook();
-  const ch = getActiveChapter();
-  if (state.qIndex + 1 < ch.questions.length) {
-    state.qIndex++; state.selectedOpt = null; state.submitted = false;
-  } else {
-    const score = Math.round((state.correctCount / ch.questions.length) * 100);
-    if (score >= 75) {
-      state.progress[ch.id].status = "PASSED";
-      state.progress[ch.id].bestScore = Math.max(state.progress[ch.id].bestScore, score);
-      const nextCh = book.chapters.find(c => c.index === ch.index + 1);
-      if (nextCh && state.progress[nextCh.id].status === "LOCKED") {
-        state.progress[nextCh.id].status = "AVAILABLE";
-      }
-    }
-    state.quizDone = true;
-  }
-  render();
-};
-
-// Перехват системного жеста «Назад» (WebView.goBack() -> popstate)
-window.addEventListener("popstate", () => {
-  if (state.activeFnId !== null) {
-    state.activeFnId = null;
-    render();
-    return;
-  }
-  if (state.settingsOpen) {
-    state.settingsOpen = false;
-    render();
-    return;
-  }
-  if (state.screen === "quiz") {
-    state.screen = "reader";
-    render();
-    return;
-  }
-  if (state.screen === "reader") {
-    state.screen = "library";
-    render();
-    return;
-  }
-  if (state.searchQuery) {
-    state.searchQuery = "";
-    render();
-    return;
-  }
-});
-
-// Инициализация базового стека при запуске
-try {
-  history.replaceState({ tag: "library" }, "", "#library");
-  if (state.screen === "reader") {
-    pushHistoryLevel("reader-" + state.chapterId);
-  } else if (state.screen === "quiz") {
-    pushHistoryLevel("reader-" + state.chapterId);
-    pushHistoryLevel("quiz-" + state.chapterId);
-  }
-} catch (e) {}
-
-window.addEventListener("scroll", () => {
-  if (state.screen !== "library") return;
-  const thumb = document.getElementById("libSbThumb");
-  const track = document.getElementById("libSbTrack");
-  if (!thumb || !track) return;
-  const docEl = document.documentElement;
-  const maxScroll = Math.max(1, docEl.scrollHeight - window.innerHeight);
-  const ratio = Math.min(1, Math.max(0, window.scrollY / maxScroll));
-  const thumbH = Math.max(8, Math.min(100, (window.innerHeight / Math.max(1, docEl.scrollHeight)) * 100));
-  thumb.style.height = thumbH.toFixed(1) + "%";
-  thumb.style.top = (ratio * (100 - thumbH)).toFixed(1) + "%";
-  track.classList.add("sb-active");
-  clearTimeout(window.__libSbTimer);
-  window.__libSbTimer = setTimeout(() => {
-    const t = document.getElementById("libSbTrack");
-    if (t) t.classList.remove("sb-active");
-  }, 1000);
-}, { passive: true });
-
-window.addEventListener("resize", () => { if (state.screen === "reader") render(); });
-render();
+${safeAppJs}
 </script>
 </body>
 </html>`;
@@ -918,7 +133,7 @@ function buildBinaryAndroidManifest() {
     'manifest',                                   // 12
     'package',                                    // 13
     'com.example.interactivereader',              // 14
-    '2.0.0',                                      // 15
+    '3.0.0',                                      // 15
     'uses-sdk',                                   // 16
     'application',                                // 17
     'Простые благодеяния',                        // 18
@@ -1080,9 +295,9 @@ function buildBinaryAndroidManifest() {
 
   const xmlChunks = [
     makeNamespaceChunk(true, 10, 11, 2),
-    // <manifest android:versionCode="2" android:versionName="2.0.0" package="com.example.interactivereader">
+    // <manifest android:versionCode="3" android:versionName="3.0.0" package="com.example.interactivereader">
     makeStartElementCorrect(12, 2, [
-      { ns: 11, nameIdx: 6, rawValIdx: -1, type: TYPE_INT_DEC, data: 2 },
+      { ns: 11, nameIdx: 6, rawValIdx: -1, type: TYPE_INT_DEC, data: 3 },
       { ns: 11, nameIdx: 7, rawValIdx: 15, type: TYPE_STRING, data: 15 },
       { ns: -1, nameIdx: 13, rawValIdx: 14, type: TYPE_STRING, data: 14 },
     ]),

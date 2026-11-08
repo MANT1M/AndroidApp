@@ -32,20 +32,29 @@ export const PRAYER_PERIODS: {
   label: string;
   shortLabel: string;
   hijriRange: string;
+  hijriMonthTatar: string;
+  hijriMonthRu: string;
+  hijriYear: number;
   imageSrc: string;
 }[] = [
   {
     id: 'oct12_nov9',
-    label: '12 октября — 9 ноября (1–29 Һиҗри)',
+    label: '12 октября — 9 ноября · Җөмадиәл-әввәл 1448 (1–29 Һиҗри)',
     shortLabel: '12 окт — 9 ноя',
     hijriRange: '1–29 Һиҗри',
+    hijriMonthTatar: 'Җөмадиәл-әввәл',
+    hijriMonthRu: 'Джумада аль-уля',
+    hijriYear: 1448,
     imageSrc: '/assets/aistudio/____________a2d7d324.png',
   },
   {
     id: 'nov10_dec9',
-    label: '10 ноября — 9 декабря (1–30 Һиҗри)',
+    label: '10 ноября — 9 декабря · Җөмадиәл-ахир 1448 (1–30 Һиҗри)',
     shortLabel: '10 ноя — 9 дек',
     hijriRange: '1–30 Һиҗри',
+    hijriMonthTatar: 'Җөмадиәл-ахир',
+    hijriMonthRu: 'Джумада ас-сания',
+    hijriYear: 1448,
     imageSrc: '/assets/aistudio/____________590ceef3.png',
   },
 ];
@@ -1108,6 +1117,74 @@ export const PRAYER_SCHEDULE_DAYS: PrayerDaySchedule[] = [
   },
 ];
 
+export const HIJRI_MONTHS_META: Record<
+  number,
+  { monthNumber: number; tatar: string; ru: string; arabic: string }
+> = {
+  1: { monthNumber: 1, tatar: 'Мөхәррәм', ru: 'Мухаррам', arabic: 'محرم' },
+  2: { monthNumber: 2, tatar: 'Сафар', ru: 'Сафар', arabic: 'صفر' },
+  3: { monthNumber: 3, tatar: 'Рабигуль-әввәл', ru: 'Раби аль-авваль', arabic: 'ربيع الأول' },
+  4: { monthNumber: 4, tatar: 'Рабигуль-ахир', ru: 'Раби ас-сани', arabic: 'ربيع الآخر' },
+  5: { monthNumber: 5, tatar: 'Җөмадиәл-әввәл', ru: 'Джумада аль-уля', arabic: 'جمادى الأولى' },
+  6: { monthNumber: 6, tatar: 'Җөмадиәл-ахир', ru: 'Джумада ас-сания', arabic: 'جمادى الآخرة' },
+  7: { monthNumber: 7, tatar: 'Рәҗәб', ru: 'Раджаб', arabic: 'رجب' },
+  8: { monthNumber: 8, tatar: 'Шәгъбан', ru: 'Шаабан', arabic: 'شعبان' },
+  9: { monthNumber: 9, tatar: 'Рамазан', ru: 'Рамадан', arabic: 'رمضان' },
+  10: { monthNumber: 10, tatar: 'Шәввәл', ru: 'Шавваль', arabic: 'شوال' },
+  11: { monthNumber: 11, tatar: 'Зөлкәгъдә', ru: 'Зу-ль-каада', arabic: 'ذو القعدة' },
+  12: { monthNumber: 12, tatar: 'Зөлхиҗҗә', ru: 'Зу-ль-хиджа', arabic: 'ذو الحجة' },
+};
+
+export const WEEKDAYS_META: Record<
+  number,
+  { tatar: string; ru: string; shortRu: string }
+> = {
+  0: { tatar: 'Якшәмбе', ru: 'Воскресенье', shortRu: 'Вс' },
+  1: { tatar: 'Дүшәмбе', ru: 'Понедельник', shortRu: 'Пн' },
+  2: { tatar: 'Сишәмбе', ru: 'Вторник', shortRu: 'Вт' },
+  3: { tatar: 'Чәршәмбе', ru: 'Среда', shortRu: 'Ср' },
+  4: { tatar: 'Пәнҗешәмбе', ru: 'Четверг', shortRu: 'Чт' },
+  5: { tatar: 'Җомга', ru: 'Пятница', shortRu: 'Пт' },
+  6: { tatar: 'Шимбә', ru: 'Суббота', shortRu: 'Сб' },
+};
+
+export function getUniversalHijriDate(date: Date = new Date()): {
+  day: number;
+  monthNumber: number;
+  monthTatar: string;
+  monthRu: string;
+  year: number;
+} {
+  try {
+    const parts = new Intl.DateTimeFormat('en-TN-u-ca-islamic-umalqura', {
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric',
+    }).formatToParts(date);
+    const day = parseInt(parts.find((p) => p.type === 'day')?.value || '1', 10) || 1;
+    const monthNumber =
+      parseInt(parts.find((p) => p.type === 'month')?.value || '5', 10) || 5;
+    const yearRaw = parts.find((p) => p.type === 'year')?.value || '1448';
+    const year = parseInt(yearRaw.replace(/\D/g, ''), 10) || 1448;
+    const meta = HIJRI_MONTHS_META[monthNumber] || HIJRI_MONTHS_META[5];
+    return {
+      day,
+      monthNumber,
+      monthTatar: meta.tatar,
+      monthRu: meta.ru,
+      year,
+    };
+  } catch {
+    return {
+      day: 27,
+      monthNumber: 5,
+      monthTatar: 'Җөмадиәл-әввәл',
+      monthRu: 'Джумада аль-уля',
+      year: 1448,
+    };
+  }
+}
+
 export function parseTimeToMinutes(timeStr: string): number {
   const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10));
   if (Number.isNaN(h) || Number.isNaN(m)) return 0;
@@ -1121,6 +1198,7 @@ export function findDefaultDayIndex(now: Date = new Date()): number {
     (d) => d.monthNum === month && d.dayNum === day
   );
   if (exactIdx !== -1) return exactIdx;
-  // Default to 4 ноя (index 23) or first day
-  return 23;
+  // Default to 8 ноя (index 27) or 4 ноя (index 23)
+  return 27;
 }
+

@@ -24,7 +24,8 @@
 
   .font-mono-tabular {
     font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-feature-settings: "tnum" 1, "zero" 1;
   }
 
   html,

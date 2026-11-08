@@ -35,9 +35,6 @@ import {
   LIBRARY_BOOKS,
 } from './data/booksCatalogData';
 import {
-  findPageIndexForOffset,
-  getOffsetForPage,
-  paginateChapterText,
   READER_THEMES,
   ReaderThemeId,
 } from './data/sherlockData';
@@ -262,15 +259,15 @@ function BookCoverPoster({
       </div>
 
       {/* High-res cover image overlay with graceful fallback */}
-      {!imgError && (
+      {!imgError && book.coverUrl && (
         <img
           src={book.coverUrl}
           alt={book.title}
           referrerPolicy="no-referrer"
           onLoad={() => setImgLoaded(true)}
           onError={() => setImgError(true)}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-            imgLoaded ? 'opacity-25 mix-blend-luminosity' : 'opacity-0'
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 z-10 ${
+            imgLoaded ? 'opacity-100' : 'opacity-0'
           }`}
         />
       )}
@@ -309,13 +306,6 @@ export default function App() {
   // Reader MVI State
   const [isControlsVisible, setIsControlsVisible] = useState<boolean>(true);
   const [isSettingsSheetOpen, setIsSettingsSheetOpen] = useState<boolean>(false);
-  const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
-  const [anchorCharOffset, setAnchorCharOffset] = useState<number>(0);
-  const [readerBoxSize, setReaderBoxSize] = useState<{ width: number; height: number }>({
-    width: 360,
-    height: 460,
-  });
-  const readerContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Quiz MVI State
   const [quizQuestionIndex, setQuizQuestionIndex] = useState<number>(0);
@@ -362,6 +352,7 @@ export default function App() {
     text: string | null;
     is_missing: boolean;
   } | null>(null);
+  const [footnoteFontSize, setFootnoteFontSize] = useState<number>(18);
   const [copiedJsonBadge, setCopiedJsonBadge] = useState<boolean>(false);
 
   const isOnline = useOnlineStatus();
@@ -427,6 +418,74 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
     } catch {}
   }, [settings]);
+
+  // Synchronize navigation state with history for Android WebView hardware/gesture Back button
+  const navStateRef = useRef({
+    activeSection,
+    activeFootnotePopup,
+    isSettingsSheetOpen,
+    selectedBookIdForSheet,
+  });
+  useEffect(() => {
+    navStateRef.current = {
+      activeSection,
+      activeFootnotePopup,
+      isSettingsSheetOpen,
+      selectedBookIdForSheet,
+    };
+  }, [activeSection, activeFootnotePopup, isSettingsSheetOpen, selectedBookIdForSheet]);
+
+  useEffect(() => {
+    if (
+      activeFootnotePopup !== null ||
+      isSettingsSheetOpen ||
+      selectedBookIdForSheet !== null ||
+      activeSection !== 'prayer'
+    ) {
+      try {
+        window.history.pushState(
+          {
+            section: activeSection,
+            fn: Boolean(activeFootnotePopup),
+            settings: isSettingsSheetOpen,
+          },
+          ''
+        );
+      } catch {}
+    }
+  }, [activeSection, Boolean(activeFootnotePopup), isSettingsSheetOpen, selectedBookIdForSheet]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const cur = navStateRef.current;
+      if (cur.activeFootnotePopup !== null) {
+        setActiveFootnotePopup(null);
+        return;
+      }
+      if (cur.isSettingsSheetOpen) {
+        setIsSettingsSheetOpen(false);
+        return;
+      }
+      if (cur.selectedBookIdForSheet !== null) {
+        setSelectedBookIdForSheet(null);
+        return;
+      }
+      if (cur.activeSection === 'quiz') {
+        setActiveSection('reader');
+        return;
+      }
+      if (cur.activeSection === 'reader') {
+        setActiveSection('library');
+        return;
+      }
+      if (cur.activeSection !== 'prayer') {
+        setActiveSection('prayer');
+        return;
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   // GetLibraryBooksUseCase + GetBookDetailsUseCase computation (merged with custom chapters)
   const booksWithProgress = useMemo(() => {
@@ -497,131 +556,18 @@ export default function App() {
   }, [activeBookEntry, activeChapterId]);
 
   // Observe reader viewport width only (height is fixed so page count never changes when turning to a shorter page)
-  useEffect(() => {
-    const el = readerContainerRef.current;
-    if (!el) return;
-    const updateSize = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 100) {
-        const horizontalPadding = rect.width >= 640 ? 80 : 48; // matches px-6 (48px) and sm:px-10 (80px)
-        const nextWidth = Math.floor(rect.width - horizontalPadding);
-        const nextHeight = rect.width >= 640 ? 430 : 390;
-        setReaderBoxSize((prev) => {
-          if (prev.width === nextWidth && prev.height === nextHeight) {
-            return prev;
-          }
-          return { width: nextWidth, height: nextHeight };
-        });
-      }
-    };
-    updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [activeSection]);
-
-  // Paginate current chapter
-  const pages = useMemo(() => {
-    return paginateChapterText(
-      currentChapter.id,
-      currentChapter.content,
-      readerBoxSize.width,
-      readerBoxSize.height,
-      settings.fontSizeSp
-    );
-  }, [
-    currentChapter.id,
-    currentChapter.content,
-    readerBoxSize.width,
-    readerBoxSize.height,
-    settings.fontSizeSp,
-  ]);
-
-  useEffect(() => {
-    const restoredIndex = findPageIndexForOffset(pages, anchorCharOffset);
-    setCurrentPageIndex(restoredIndex);
-  }, [pages]);
-
-  // Debounced (300ms) save of lastCharOffset
-  useEffect(() => {
-    if (activeSection !== 'reader') return;
-    const timer = window.setTimeout(() => {
-      setProgressMap((prev) => {
-        const existing = prev[currentChapter.id];
-        if (!existing || existing.lastCharOffset === anchorCharOffset) return prev;
-        return {
-          ...prev,
-          [currentChapter.id]: {
-            ...existing,
-            lastCharOffset: anchorCharOffset,
-          },
-        };
-      });
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [anchorCharOffset, currentChapter.id, activeSection]);
-
-  // Handle chapter click from BookDetailsBottomSheet (MVI LibraryIntent.OnChapterClicked)
+  // Handle chapter click from BookDetailsBottomSheet or reader navigation
   const handleChapterClicked = (
     bookId: number,
-    chapter: ChapterData & { status: ChapterStatus; lastCharOffset: number }
+    chapter: ChapterData & { status: ChapterStatus; lastCharOffset?: number }
   ) => {
     setActiveBookId(bookId);
     setActiveChapterId(chapter.id);
-    setAnchorCharOffset(chapter.lastCharOffset || 0);
     setSelectedBookIdForSheet(null);
     setIsSettingsSheetOpen(false);
+    setActiveFootnotePopup(null);
     setActiveSection('reader');
-  };
-
-  const [isScrollbarActive, setIsScrollbarActive] = useState(false);
-  const [isScrollbarTouching, setIsScrollbarTouching] = useState(false);
-  const scrollbarTimeoutRef = useRef<number | null>(null);
-  const scrollbarTrackRef = useRef<HTMLDivElement | null>(null);
-
-  const triggerScrollbarVisibility = () => {
-    setIsScrollbarActive(true);
-    if (scrollbarTimeoutRef.current) {
-      window.clearTimeout(scrollbarTimeoutRef.current);
-    }
-    scrollbarTimeoutRef.current = window.setTimeout(() => {
-      setIsScrollbarActive(false);
-    }, 1400);
-  };
-
-  const handlePageTurn = (targetIndex: number) => {
-    if (pages.length === 0) return;
-    const clamped = Math.min(Math.max(0, targetIndex), pages.length - 1);
-    setCurrentPageIndex(clamped);
-    const newOffset = getOffsetForPage(pages, clamped);
-    setAnchorCharOffset(newOffset);
-    triggerScrollbarVisibility();
-  };
-
-  const handleScrollbarPointer = (clientY: number) => {
-    if (!scrollbarTrackRef.current || pages.length <= 1) return;
-    const rect = scrollbarTrackRef.current.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)));
-    const targetPage = Math.round(ratio * (pages.length - 1));
-    handlePageTurn(targetPage);
-  };
-
-  const handleReaderSurfaceClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isSettingsSheetOpen) {
-      setIsSettingsSheetOpen(false);
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const width = rect.width;
-
-    if (clickX < width * 0.25) {
-      if (currentPageIndex > 0) handlePageTurn(currentPageIndex - 1);
-    } else if (clickX > width * 0.75) {
-      if (currentPageIndex < pages.length - 1) handlePageTurn(currentPageIndex + 1);
-    } else {
-      setIsControlsVisible((prev) => !prev);
-    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleStartQuiz = (bookId: number = activeBookId, chapterId: number = currentChapter.id) => {
@@ -740,8 +686,12 @@ export default function App() {
   };
 
   const activeTheme = READER_THEMES[settings.theme];
-  const currentPage = pages[currentPageIndex] || pages[0];
-  const isLastReaderPage = pages.length > 0 && currentPageIndex === pages.length - 1;
+  const prevChapterObj = activeBookEntry.chapters.find(
+    (c) => c.chapterOrder === currentChapter.chapterOrder - 1
+  );
+  const nextChapterObj = activeBookEntry.chapters.find(
+    (c) => c.chapterOrder === currentChapter.chapterOrder + 1
+  );
 
   const currentQuestion = currentChapter.quiz[quizQuestionIndex];
   const quizScorePercent =
@@ -749,9 +699,6 @@ export default function App() {
       ? Math.round((correctAnswersCount / currentChapter.quiz.length) * 100)
       : 0;
   const isQuizPassed = quizScorePercent >= PASSING_SCORE_PERCENT;
-  const nextChapterObj = activeBookEntry.chapters.find(
-    (c) => c.chapterOrder === currentChapter.chapterOrder + 1
-  );
 
   const currentReaderNormalizedDoc = useMemo(() => {
     const slug =
@@ -1260,10 +1207,7 @@ export default function App() {
               return (
                 <div key={item.book.id} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   {/* Left Column: Book Poster Card */}
-                  <div
-                    onClick={() => setSelectedBookIdForSheet(item.book.id)}
-                    className="lg:col-span-4 bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-5 flex flex-col justify-between cursor-pointer transition-all hover:shadow-sm group"
-                  >
+                  <div className="lg:col-span-4 bg-white rounded-2xl border border-stone-200/90 p-5 flex flex-col justify-between">
                     <div className="space-y-4">
                       <BookCoverPoster book={item.book} />
 
@@ -1271,7 +1215,7 @@ export default function App() {
                         <div className="text-[11px] text-stone-500 font-mono-tabular">
                           {item.book.genre} · {item.book.year}
                         </div>
-                        <h2 className="text-xl font-bold text-slate-900 font-display group-hover:text-amber-900 transition-colors">
+                        <h2 className="text-xl font-bold text-slate-900 font-display">
                           {item.book.title}
                         </h2>
                         <p className="text-xs font-medium text-stone-600">{item.book.author}</p>
@@ -1295,10 +1239,6 @@ export default function App() {
                           style={{ width: `${percent}%` }}
                         />
                       </div>
-                      <div className="pt-1 flex items-center justify-between text-xs font-semibold text-slate-900">
-                        <span>Открыть карточку книги</span>
-                        <ChevronRight className="w-4 h-4 text-stone-400 group-hover:translate-x-0.5 transition-transform" />
-                      </div>
                     </div>
                   </div>
 
@@ -1314,24 +1254,6 @@ export default function App() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
-                        <button
-                          onClick={() => {
-                            setArchitectBookId(item.book.id);
-                            setArchitectChapterId(item.chapters[0]?.id || 501);
-                            setRawBookSlug(
-                              item.book.id === 5
-                                ? 'prostye-blagodeyaniya'
-                                : 'psihologiya-islamskiy-diskurs'
-                            );
-                            setRawChapterNumber(item.chapters.length + 1);
-                            setArchitectMode('create_raw');
-                            setIsArchitectOpen(true);
-                          }}
-                          className="px-3 py-1.5 rounded-lg border border-amber-800/30 bg-amber-50/80 hover:bg-amber-100 text-amber-950 text-xs font-semibold transition-colors flex items-center gap-1.5"
-                        >
-                          <FileCode2 className="w-3.5 h-3.5" />
-                          <span>+ Добавить главу (JSON)</span>
-                        </button>
                         <span className="text-xs font-mono-tabular font-semibold text-stone-600">
                           {matchingChapters.length} из {item.chapters.length} глав
                         </span>
@@ -1416,15 +1338,14 @@ export default function App() {
 
         {/* SECTION 2: READER */}
         {activeSection === 'reader' && (
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-3xl mx-auto pb-12">
             <div
-              ref={readerContainerRef}
               style={{
                 backgroundColor: activeTheme.bgHex,
                 color: activeTheme.textHex,
                 borderColor: activeTheme.borderHex,
               }}
-              className="rounded-2xl border shadow-sm overflow-hidden flex flex-col min-h-[620px] sm:min-h-[680px] relative select-none transition-colors duration-200"
+              className="rounded-2xl border shadow-sm overflow-hidden flex flex-col transition-colors duration-200"
             >
               {isControlsVisible && (
                 <div
@@ -1432,14 +1353,14 @@ export default function App() {
                     backgroundColor: activeTheme.surfaceHex,
                     borderColor: activeTheme.borderHex,
                   }}
-                  className="px-4 sm:px-6 py-3 border-b flex items-center justify-between gap-4 z-20"
+                  className="sticky top-0 px-4 sm:px-6 py-3 border-b flex items-center justify-between gap-4 z-20 backdrop-blur-md shadow-xs"
                 >
                   <button
                     onClick={() => {
                       setSelectedBookIdForSheet(activeBookId);
                       setActiveSection('library');
                     }}
-                    className="min-h-[44px] min-w-[44px] flex items-center gap-2 text-sm font-medium rounded-lg px-2 hover:opacity-80 transition-opacity"
+                    className="min-h-[44px] min-w-[44px] flex items-center gap-2 text-sm font-medium rounded-lg px-2 hover:opacity-80 transition-opacity cursor-pointer"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     <span className="hidden sm:inline">{activeBookEntry.book.title}</span>
@@ -1451,27 +1372,14 @@ export default function App() {
                       style={{ color: activeTheme.mutedHex }}
                       className="text-[11px] font-mono-tabular"
                     >
-                      Края экрана — листание · Центр — скрыть панели
+                      {activeBookEntry.book.title} · Глава {currentChapter.chapterOrder}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => {
-                        setArchitectBookId(activeBookId);
-                        setArchitectChapterId(currentChapter.id);
-                        setArchitectMode('inspect');
-                        setIsArchitectOpen(true);
-                      }}
-                      className="min-h-[40px] px-2.5 rounded-lg border border-current/20 text-xs font-mono-tabular font-semibold flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                      title="Нормализованный JSON главы (Room FTS5 / BiDi / Сноски)"
-                    >
-                      <FileCode2 className="w-4 h-4" />
-                      <span className="hidden sm:inline">JSON / FTS5</span>
-                    </button>
-                    <button
                       onClick={() => setIsSettingsSheetOpen((prev) => !prev)}
-                      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:opacity-80 transition-opacity"
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:opacity-80 transition-opacity cursor-pointer"
                       aria-label="Настройки чтения"
                     >
                       <Settings className="w-5 h-5" />
@@ -1480,162 +1388,233 @@ export default function App() {
                 </div>
               )}
 
-              <div
-                onClick={handleReaderSurfaceClick}
-                onWheel={() => triggerScrollbarVisibility()}
-                onTouchMove={() => triggerScrollbarVisibility()}
-                className="flex-1 px-6 sm:px-10 py-6 flex flex-col justify-between cursor-pointer relative"
-              >
-                {/* Вертикальная полоса прокрутки (4dp ширина, 4dp отступ от правого края, капсула #0D3B2E, дорожка 5%) */}
-                <div
-                  ref={scrollbarTrackRef}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleScrollbarPointer(e.clientY);
-                  }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    setIsScrollbarTouching(true);
-                    triggerScrollbarVisibility();
-                    handleScrollbarPointer(e.clientY);
-                  }}
-                  onPointerMove={(e) => {
-                    if (isScrollbarTouching) {
-                      e.stopPropagation();
-                      triggerScrollbarVisibility();
-                      handleScrollbarPointer(e.clientY);
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    e.stopPropagation();
-                    setIsScrollbarTouching(false);
-                  }}
-                  onPointerLeave={() => setIsScrollbarTouching(false)}
-                  style={{
-                    right: '4px',
-                    width: '4px',
-                    backgroundColor: 'rgba(214, 208, 196, 0.05)',
-                    opacity: isScrollbarTouching ? 1 : isScrollbarActive ? 0.96 : 0.78,
-                  }}
-                  className="absolute top-4 bottom-20 rounded-full z-20 transition-opacity duration-300 select-none"
-                  title={`Прогресс главы: стр. ${currentPageIndex + 1} из ${pages.length}`}
-                >
-                  {(() => {
-                    const total = Math.max(1, pages.length);
-                    const thumbHeightPct = Math.max(12, Math.min(100, 100 / total));
-                    const maxTopPct = 100 - thumbHeightPct;
-                    const topPct =
-                      total > 1 ? (currentPageIndex / (total - 1)) * maxTopPct : 0;
-                    return (
-                      <div
-                        style={{
-                          height: `${thumbHeightPct}%`,
-                          top: `${topPct}%`,
-                          backgroundColor: '#06372C',
-                        }}
-                        className="w-full rounded-full relative transition-all duration-200 hover:opacity-100"
-                      />
-                    );
-                  })()}
-                </div>
-
+              <div className="px-6 sm:px-10 py-8 flex flex-col relative">
+                {/* Full chapter text rendered continuously on one page */}
                 <div
                   style={{
                     fontSize: `${settings.fontSizeSp}px`,
-                    lineHeight: Math.max(1.55, settings.arabicScaleFactor * 1.38),
+                    lineHeight: Math.max(1.65, settings.arabicScaleFactor * 1.45),
                   }}
-                  className="font-reader tracking-normal my-auto pr-2"
+                  className="font-reader tracking-normal space-y-4"
                 >
-                  {currentPage?.text
-                    ? currentPage.text.split('\n').map((lineText, lineIdx) => {
-                        const isRtlLine = isArabicParagraphLine(lineText);
-                        if (!lineText.trim()) {
-                          return <div key={lineIdx} className="h-3" />;
-                        }
-                        return (
-                          <div
-                            key={lineIdx}
-                            dir={isRtlLine ? 'rtl' : 'ltr'}
-                            className={isRtlLine ? 'text-right' : 'text-left'}
-                          >
-                            {lineText.split(/([¹²³⁴⁵⁶⁷⁸⁹⁰]+)/g).map((part, idx) => {
-                              const supMap: Record<string, string> = {
-                                '¹': '1',
-                                '²': '2',
-                                '³': '3',
-                                '⁴': '4',
-                                '⁵': '5',
-                                '⁶': '6',
-                                '⁷': '7',
-                                '⁸': '8',
-                                '⁹': '9',
-                                '⁰': '0',
-                              };
-                              if (/^[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/.test(part)) {
-                                const fnId = part
-                                  .split('')
-                                  .map((c) => supMap[c] || c)
-                                  .join('');
-                                const fnObj = currentReaderNormalizedDoc.footnotes.find(
-                                  (f) => f.id === fnId
-                                );
-                                if (fnObj) {
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveFootnotePopup(fnObj);
-                                      }}
-                                      title={`Сноска ${fnId}: ${fnObj.anchor_text}`}
-                                      className="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-[11px] font-mono-tabular font-bold rounded bg-amber-500/20 text-amber-700 border border-amber-600/40 align-super hover:bg-amber-500/30 transition-colors cursor-pointer"
-                                    >
-                                      {part}
-                                    </button>
-                                  );
-                                }
-                              }
-                              return (
-                                <React.Fragment key={idx}>
-                                  {renderMixedArabicFragment(
-                                    part,
-                                    settings.fontSizeSp,
-                                    settings.arabicScaleFactor,
-                                    `p-${lineIdx}-${idx}`
-                                  )}
-                                </React.Fragment>
+                  {currentChapter.content
+                    .split('\n')
+                    .map((lineText, lineIdx) => {
+                      const isRtlLine = isArabicParagraphLine(lineText);
+                      if (!lineText.trim()) {
+                        return <div key={lineIdx} className="h-2" />;
+                      }
+                      return (
+                        <div
+                          key={lineIdx}
+                          dir={isRtlLine ? 'rtl' : 'ltr'}
+                          className={isRtlLine ? 'text-right' : 'text-left'}
+                        >
+                          {lineText.split(/([¹²³⁴⁵⁶⁷⁸⁹⁰]+)/g).map((part, idx) => {
+                            const supMap: Record<string, string> = {
+                              '¹': '1',
+                              '²': '2',
+                              '³': '3',
+                              '⁴': '4',
+                              '⁵': '5',
+                              '⁶': '6',
+                              '⁷': '7',
+                              '⁸': '8',
+                              '⁹': '9',
+                              '⁰': '0',
+                            };
+                            if (/^[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/.test(part)) {
+                              const fnId = part
+                                .split('')
+                                .map((c) => supMap[c] || c)
+                                .join('');
+                              const fnObj = currentReaderNormalizedDoc.footnotes.find(
+                                (f) => f.id === fnId
                               );
-                            })}
-                          </div>
-                        );
-                      })
-                    : null}
+                              if (fnObj) {
+                                return (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveFootnotePopup(fnObj);
+                                    }}
+                                    title={`Сноска ${fnId}: ${fnObj.anchor_text}`}
+                                    className="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-[11px] font-mono-tabular font-bold rounded bg-amber-500/20 text-amber-700 border border-amber-600/40 align-super hover:bg-amber-500/30 transition-colors cursor-pointer"
+                                  >
+                                    {part}
+                                  </button>
+                                );
+                              }
+                            }
+                            return (
+                              <React.Fragment key={idx}>
+                                {renderMixedArabicFragment(
+                                  part,
+                                  settings.fontSizeSp,
+                                  settings.arabicScaleFactor,
+                                  `p-${lineIdx}-${idx}`
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
                 </div>
 
-                {activeFootnotePopup && (
+
+                {/* Chapter footer & actions styled as in user's reference */}
+                <div className="pt-4 mt-8 flex flex-col items-center w-full">
+                  {/* Dashed line */}
+                  <div className="w-full border-t-2 border-dashed border-[#cbb396]/70 dark:border-stone-700 my-6" />
+
+                  {/* 3 Diamonds + "Конец главы" */}
+                  <div className="flex flex-col items-center gap-1.5 mb-6 text-center">
+                    <div className="flex items-center gap-2.5 text-[#a84b0b] dark:text-amber-500 text-sm select-none">
+                      <span>❖</span>
+                      <span>❖</span>
+                      <span>❖</span>
+                    </div>
+                    <div className="font-serif font-bold text-slate-800 dark:text-stone-200 text-sm tracking-wide">
+                      Конец главы
+                    </div>
+                  </div>
+
+                  {/* Buttons stack */}
+                  <div className="w-full max-w-md mx-auto flex flex-col items-center gap-3.5">
+                    {/* Button 1: Test */}
+                    {currentChapter.quiz && currentChapter.quiz.length > 0 && (
+                      <button
+                        onClick={() => handleStartQuiz(activeBookId, currentChapter.id)}
+                        className="w-full rounded-2xl bg-[#a64708] hover:bg-[#913d05] text-white p-4 shadow-md shadow-amber-950/20 flex items-center justify-between gap-3 font-serif font-bold text-base transition-all transform active:scale-[0.99] cursor-pointer"
+                      >
+                        <span className="flex-1 text-center pl-4">
+                          Пройти тест по главе ({currentChapter.quiz.length} вопр.)
+                        </span>
+                        <ArrowRight className="w-5 h-5 shrink-0 text-white/90 mr-1" />
+                      </button>
+                    )}
+
+                    {/* Button 2: Previous Chapter */}
+                    {prevChapterObj && (
+                      <button
+                        onClick={() => {
+                          handleChapterClicked(activeBookId, {
+                            ...prevChapterObj,
+                            status: 'AVAILABLE',
+                            lastCharOffset: 0,
+                          });
+                        }}
+                        className="w-full rounded-2xl border border-[#d7be9f] bg-[#ede7df]/90 hover:bg-[#e3dcd1] dark:bg-stone-800 dark:border-stone-700 p-3.5 text-center shadow-xs transition-colors cursor-pointer text-slate-900 dark:text-stone-100 font-serif font-semibold text-sm leading-snug"
+                      >
+                        ← Предыдущая глава: {prevChapterObj.title}
+                      </button>
+                    )}
+
+                    {/* Button 3: Next Chapter */}
+                    {nextChapterObj && (
+                      <button
+                        onClick={() => {
+                          handleChapterClicked(activeBookId, {
+                            ...nextChapterObj,
+                            status: 'AVAILABLE',
+                            lastCharOffset: 0,
+                          });
+                        }}
+                        className="rounded-xl bg-[#157942] hover:bg-[#116737] text-white py-3 px-6 text-center shadow-md shadow-emerald-950/20 font-serif font-semibold text-sm transition-all transform active:scale-[0.99] cursor-pointer"
+                      >
+                        Следующая глава: {nextChapterObj.title} →
+                      </button>
+                    )}
+
+                    {/* Button 4: Return to Contents */}
+                    <button
+                      onClick={() => {
+                        setSelectedBookIdForSheet(activeBookId);
+                        setActiveSection('library');
+                      }}
+                      className="rounded-xl border border-[#d7be9f] bg-[#faf8f5]/80 hover:bg-[#f1ece4] dark:bg-stone-900/60 dark:border-stone-700 py-2.5 px-6 text-center text-[#9b4006] dark:text-amber-500 font-serif font-bold text-sm shadow-xs transition-colors cursor-pointer mt-1"
+                    >
+                      Вернуться к оглавлению
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footnote bottom sheet modal matching user's design reference */}
+              {activeFootnotePopup && (
+                <div
+                  className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-xs p-0 sm:p-4 select-text"
+                  onClick={() => setActiveFootnotePopup(null)}
+                >
                   <div
                     onClick={(e) => e.stopPropagation()}
                     style={{
                       backgroundColor: activeTheme.surfaceHex,
                       borderColor: activeTheme.borderHex,
+                      color: activeTheme.textHex,
                     }}
-                    className="mt-3 p-3.5 rounded-xl border shadow-sm space-y-1.5 text-xs"
+                    className="w-full max-w-xl rounded-t-3xl sm:rounded-2xl border p-5 sm:p-6 shadow-2xl space-y-3 animate-in fade-in slide-in-from-bottom duration-200"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono-tabular font-bold text-amber-700">
-                        Сноска [{activeFootnotePopup.id}] · Привязка: {activeFootnotePopup.anchor_text}
+                    {/* Header Row 1: [ID] Badge + "Сноска к тексту" */}
+                    <div className="flex items-center gap-2.5">
+                      <span className="bg-[#b34b07] text-white text-xs sm:text-sm font-bold px-2 py-0.5 rounded-md tracking-wide">
+                        [{activeFootnotePopup.id}]
                       </span>
+                      <span className="font-serif font-bold text-base sm:text-lg text-[#963e05] dark:text-amber-500">
+                        Сноска к тексту
+                      </span>
+                    </div>
+
+                    {/* Header Row 2: A- 18 A+ pill and ✕ Закрыть button */}
+                    <div
+                      className="flex items-center justify-between gap-3 pb-3 border-b"
+                      style={{ borderColor: activeTheme.borderHex }}
+                    >
+                      <div className="flex items-center gap-2.5 bg-[#e8decb]/80 dark:bg-stone-800 border border-[#d9ccb6] dark:border-stone-700 rounded-xl px-3 py-1">
+                        <button
+                          type="button"
+                          onClick={() => setFootnoteFontSize((s) => Math.max(12, s - 2))}
+                          disabled={footnoteFontSize <= 12}
+                          className="font-bold text-sm text-stone-800 dark:text-stone-200 hover:opacity-75 disabled:opacity-40 cursor-pointer min-h-[32px] px-1"
+                          title="Уменьшить шрифт сноски"
+                        >
+                          A-
+                        </button>
+                        <span className="font-mono font-bold text-sm text-[#b34b07] dark:text-amber-500 min-w-[20px] text-center">
+                          {footnoteFontSize}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFootnoteFontSize((s) => Math.min(28, s + 2))}
+                          disabled={footnoteFontSize >= 28}
+                          className="font-bold text-sm text-stone-800 dark:text-stone-200 hover:opacity-75 disabled:opacity-40 cursor-pointer min-h-[32px] px-1"
+                          title="Увеличить шрифт сноски"
+                        >
+                          A+
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => setActiveFootnotePopup(null)}
-                        className="p-1 rounded hover:opacity-75"
-                        aria-label="Закрыть сноску"
+                        className="bg-[#b34b07] hover:bg-[#973f05] text-white text-xs sm:text-sm font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <span className="text-sm leading-none">✕</span>
+                        <span>Закрыть</span>
                       </button>
                     </div>
-                    <div className="leading-relaxed font-reader text-sm space-y-1">
+
+                    {/* Footnote Body Text */}
+                    <div
+                      style={{
+                        fontSize: `${footnoteFontSize}px`,
+                        lineHeight: 1.6,
+                      }}
+                      className="pt-2 font-serif text-slate-900 dark:text-stone-100 max-h-[55vh] overflow-y-auto space-y-2 pr-1"
+                    >
                       {(activeFootnotePopup.text || '').split('\n').map((fnLine, fnIdx) => {
                         const isRtlFn = isArabicParagraphLine(fnLine);
                         return (
@@ -1646,7 +1625,7 @@ export default function App() {
                           >
                             {renderMixedArabicFragment(
                               fnLine,
-                              14,
+                              footnoteFontSize,
                               settings.arabicScaleFactor,
                               `fn-${fnIdx}`
                             )}
@@ -1655,184 +1634,129 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                )}
-
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  className="pt-4 mt-4 border-t flex items-center justify-between gap-4 min-h-[56px]"
-                  style={{ borderColor: activeTheme.borderHex }}
-                >
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handlePageTurn(currentPageIndex - 1)}
-                      disabled={currentPageIndex === 0}
-                      className="min-h-[44px] px-3 rounded-lg border text-xs font-medium disabled:opacity-35 flex items-center gap-1"
-                      style={{ borderColor: activeTheme.borderHex }}
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Назад</span>
-                    </button>
-                    <button
-                      onClick={() => handlePageTurn(currentPageIndex + 1)}
-                      disabled={isLastReaderPage}
-                      className="min-h-[44px] px-3 rounded-lg border text-xs font-medium disabled:opacity-35 flex items-center gap-1"
-                      style={{ borderColor: activeTheme.borderHex }}
-                    >
-                      <span>Вперед</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div
-                    style={{ color: activeTheme.mutedHex }}
-                    className="text-xs font-mono-tabular"
-                  >
-                    Стр. {currentPageIndex + 1} / {pages.length}
-                  </div>
-
-                  {isLastReaderPage && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleStartQuiz(activeBookId, currentChapter.id)}
-                        className="px-3.5 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold flex items-center gap-1.5 min-h-[44px] shadow-xs transition-colors"
-                      >
-                        <span>Пройти тест</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                      {nextChapterObj && (
-                        <button
-                          onClick={() =>
-                            handleChapterClicked(activeBookId, {
-                              ...nextChapterObj,
-                              status: 'AVAILABLE',
-                              lastCharOffset: progressMap[nextChapterObj.id]?.lastCharOffset || 0,
-                            })
-                          }
-                          className="px-3.5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold flex items-center gap-1.5 min-h-[44px] shadow-xs transition-colors"
-                        >
-                          <span>След. глава</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
-              </div>
+              )}
 
               {isSettingsSheetOpen && (
                 <div
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    backgroundColor: activeTheme.surfaceHex,
-                    borderColor: activeTheme.borderHex,
-                  }}
-                  className="absolute bottom-0 left-0 right-0 z-30 rounded-t-3xl border-t p-6 shadow-xl space-y-5"
+                  className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-xs p-0 sm:p-4"
+                  onClick={() => setIsSettingsSheetOpen(false)}
                 >
-                  <div className="w-10 h-1.5 bg-stone-400/50 rounded-full mx-auto -mt-2 mb-2" />
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold">Настройки чтения</h3>
-                    <button
-                      onClick={() => setIsSettingsSheetOpen(false)}
-                      className="text-xs font-medium underline min-h-[36px] px-2"
-                    >
-                      Готово
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Type className="w-4 h-4" />
-                      <span>Размер шрифта</span>
-                    </div>
-                    <div className="flex items-center gap-3">
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      backgroundColor: activeTheme.surfaceHex,
+                      borderColor: activeTheme.borderHex,
+                      color: activeTheme.textHex,
+                    }}
+                    className="w-full max-w-xl rounded-t-3xl sm:rounded-2xl border p-6 shadow-2xl space-y-5 animate-in fade-in slide-in-from-bottom duration-200"
+                  >
+                    <div className="w-10 h-1.5 bg-stone-400/50 rounded-full mx-auto -mt-2 mb-2" />
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-bold">Настройки чтения</h3>
                       <button
-                        onClick={() =>
-                          setSettings((s) => ({
-                            ...s,
-                            fontSizeSp: Math.max(14, s.fontSizeSp - 2),
-                          }))
-                        }
-                        disabled={settings.fontSizeSp <= 14}
-                        className="min-h-[44px] min-w-[44px] rounded-xl border border-current/20 font-bold text-sm disabled:opacity-40"
+                        onClick={() => setIsSettingsSheetOpen(false)}
+                        className="text-xs font-medium underline min-h-[36px] px-2 cursor-pointer"
                       >
-                        А-
-                      </button>
-                      <span className="font-mono-tabular text-sm font-semibold w-14 text-center">
-                        {settings.fontSizeSp} sp
-                      </span>
-                      <button
-                        onClick={() =>
-                          setSettings((s) => ({
-                            ...s,
-                            fontSizeSp: Math.min(28, s.fontSizeSp + 2),
-                          }))
-                        }
-                        disabled={settings.fontSizeSp >= 28}
-                        className="min-h-[44px] min-w-[44px] rounded-xl border border-current/20 font-bold text-sm disabled:opacity-40"
-                      >
-                        А+
+                        Готово
                       </button>
                     </div>
-                  </div>
 
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between text-xs font-medium">
-                      <span>
-                        Масштаб арабской вязи:{' '}
-                        <strong className="font-mono-tabular">
-                          {settings.arabicScaleFactor.toFixed(2)}x (
-                          {(settings.fontSizeSp * settings.arabicScaleFactor).toFixed(1)} sp)
-                        </strong>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings((s) => ({ ...s, arabicScaleFactor: 1.0 }))
-                        }
-                        className="px-2 py-0.5 rounded border border-current/20 text-[11px] font-mono-tabular hover:opacity-80"
-                      >
-                        Сброс 1.0x
-                      </button>
-                    </div>
-                    <input
-                      type="range"
-                      min={1.0}
-                      max={2.0}
-                      step={0.05}
-                      value={settings.arabicScaleFactor}
-                      onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          arabicScaleFactor: Math.min(
-                            2.0,
-                            Math.max(1.0, parseFloat(e.target.value) || 1.0)
-                          ),
-                        }))
-                      }
-                      className="w-full accent-[#06372C] cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    {(Object.keys(READER_THEMES) as ReaderThemeId[]).map((themeKey) => {
-                      const t = READER_THEMES[themeKey];
-                      const isSelected = settings.theme === themeKey;
-                      return (
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Type className="w-4 h-4" />
+                        <span>Размер шрифта</span>
+                      </div>
+                      <div className="flex items-center gap-3">
                         <button
-                          key={themeKey}
-                          onClick={() => setSettings((s) => ({ ...s, theme: themeKey }))}
-                          style={{
-                            backgroundColor: t.bgHex,
-                            color: t.textHex,
-                            borderColor: isSelected ? '#B45309' : t.borderHex,
-                          }}
-                          className="min-h-[48px] rounded-xl border-2 text-xs font-semibold flex items-center justify-center gap-2"
+                          onClick={() =>
+                            setSettings((s) => ({
+                              ...s,
+                              fontSizeSp: Math.max(14, s.fontSizeSp - 2),
+                            }))
+                          }
+                          disabled={settings.fontSizeSp <= 14}
+                          className="min-h-[44px] min-w-[44px] rounded-xl border border-current/20 font-bold text-sm disabled:opacity-40 cursor-pointer"
                         >
-                          {isSelected && <Check className="w-3.5 h-3.5 text-amber-700" />}
-                          <span>{t.displayName}</span>
+                          А-
                         </button>
-                      );
-                    })}
+                        <span className="font-mono-tabular text-sm font-semibold w-14 text-center">
+                          {settings.fontSizeSp} sp
+                        </span>
+                        <button
+                          onClick={() =>
+                            setSettings((s) => ({
+                              ...s,
+                              fontSizeSp: Math.min(28, s.fontSizeSp + 2),
+                            }))
+                          }
+                          disabled={settings.fontSizeSp >= 28}
+                          className="min-h-[44px] min-w-[44px] rounded-xl border border-current/20 font-bold text-sm disabled:opacity-40 cursor-pointer"
+                        >
+                          А+
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between text-xs font-medium">
+                        <span>
+                          Масштаб арабской вязи:{' '}
+                          <strong className="font-mono-tabular">
+                            {settings.arabicScaleFactor.toFixed(2)}x (
+                            {(settings.fontSizeSp * settings.arabicScaleFactor).toFixed(1)} sp)
+                          </strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSettings((s) => ({ ...s, arabicScaleFactor: 1.0 }))
+                          }
+                          className="px-2 py-0.5 rounded border border-current/20 text-[11px] font-mono-tabular hover:opacity-80 cursor-pointer"
+                        >
+                          Сброс 1.0x
+                        </button>
+                      </div>
+                      <input
+                        type="range"
+                        min={1.0}
+                        max={2.0}
+                        step={0.05}
+                        value={settings.arabicScaleFactor}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            arabicScaleFactor: Math.min(
+                              2.0,
+                              Math.max(1.0, parseFloat(e.target.value) || 1.0)
+                            ),
+                          }))
+                        }
+                        className="w-full accent-[#06372C] cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      {(Object.keys(READER_THEMES) as ReaderThemeId[]).map((themeKey) => {
+                        const t = READER_THEMES[themeKey];
+                        const isSelected = settings.theme === themeKey;
+                        return (
+                          <button
+                            key={themeKey}
+                            onClick={() => setSettings((s) => ({ ...s, theme: themeKey }))}
+                            style={{
+                              backgroundColor: t.bgHex,
+                              color: t.textHex,
+                              borderColor: isSelected ? '#B45309' : t.borderHex,
+                            }}
+                            className="min-h-[48px] rounded-xl border-2 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 text-amber-700" />}
+                            <span>{t.displayName}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
