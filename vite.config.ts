@@ -7,6 +7,21 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'apk-download-headers',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url && req.url.split('?')[0].endsWith('.apk')) {
+              res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+              res.setHeader(
+                'Content-Disposition',
+                'attachment; filename="InteractiveReader.apk"'
+              );
+            }
+            next();
+          });
+        },
+      },
       react(),
       tailwindcss(),
       VitePWA({

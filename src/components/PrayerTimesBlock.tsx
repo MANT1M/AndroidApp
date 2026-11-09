@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import {
   findDefaultDayIndex,
+  getUfaTimeParts,
   parseTimeToMinutes,
   PRAYER_COLUMNS_META,
   PRAYER_PERIODS,
@@ -45,7 +46,8 @@ const COMPACT_CARD_LABELS: Record<
     shortTatar: 'КОЯШ',
     shortRu: 'Шурук',
     statusTitle: 'КОЯШ ЧЫГА (ВОСХОД (ШУРУК))',
-    rakaatsSummary: 'Восход солнца (окончание времени Фаджра; через 20 мин — время намаза Ишрак/Духа)',
+    rakaatsSummary:
+      'Восход солнца (окончание времени Фаджра; через 20 мин — время намаза Ишрак/Духа)',
     arabicName: 'الشروق',
   },
   dhuhr: {
@@ -109,6 +111,12 @@ export default function PrayerTimesBlock({
   }, []);
 
   const todayDayIdx = useMemo(() => findDefaultDayIndex(now), [now]);
+
+  // Automatically advance to the new day when midnight passes in Ufa (UTC+5)
+  useEffect(() => {
+    setSelectedDayIdx(todayDayIdx);
+  }, [todayDayIdx]);
+
   const isSelectedToday = selectedDayIdx === todayDayIdx;
   const selectedDay = PRAYER_SCHEDULE_DAYS[selectedDayIdx] || PRAYER_SCHEDULE_DAYS[0];
   const selectedPeriod = useMemo(
@@ -116,10 +124,11 @@ export default function PrayerTimesBlock({
     [selectedDay.periodId]
   );
 
-  // Calculate active prayer, next prayer, progress bar ratio, and live HH:MM:SS countdown
+  // Calculate active prayer, next prayer, progress bar ratio, and live HH:MM:SS countdown in Ufa time (UTC+5)
   const prayerStatus = useMemo(() => {
+    const ufa = getUfaTimeParts(now);
     const nowTotalSeconds =
-      now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+      ufa.hours * 3600 + ufa.minutes * 60 + ufa.seconds;
     const nowMinutes = nowTotalSeconds / 60;
 
     const timesList: { meta: PrayerColumnMeta; timeStr: string; minutes: number }[] =
@@ -210,8 +219,11 @@ export default function PrayerTimesBlock({
       ? 9
       : monthStr.startsWith('ноя')
       ? 10
-      : 11;
-    const currentDateUTC = Date.UTC(2026, monthIndex, dayNum);
+      : monthStr.startsWith('дек')
+      ? 11
+      : 0;
+    const year = monthIndex === 0 ? 2027 : 2026;
+    const currentDateUTC = Date.UTC(year, monthIndex, dayNum);
     const ramadanStartUTC = Date.UTC(2027, 1, 8); // Feb 8
     const daysLeft = Math.max(
       1,
@@ -243,15 +255,17 @@ export default function PrayerTimesBlock({
 
   const formatMiladiFull = (shortDate: string): string => {
     return shortDate
-      .replace(/\bокт\b/i, 'октября')
-      .replace(/\bноя\b/i, 'ноября')
-      .replace(/\bдек\b/i, 'декабря');
+      .replace(/окт/i, 'октября')
+      .replace(/ноя/i, 'ноября')
+      .replace(/дек/i, 'декабря')
+      .replace(/янв/i, 'января');
   };
 
   const liveClockStr = useMemo(() => {
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
+    const ufa = getUfaTimeParts(now);
+    const hh = String(ufa.hours).padStart(2, '0');
+    const mm = String(ufa.minutes).padStart(2, '0');
+    const ss = String(ufa.seconds).padStart(2, '0');
     return `${hh}:${mm}:${ss}`;
   }, [now]);
 
@@ -261,14 +275,13 @@ export default function PrayerTimesBlock({
 
   return (
     <section aria-label="Время намаза (Намаз вакытлары)" className="space-y-4">
-      {/* Main Dark-Emerald Prayer Times Hero Card (matching screenshot 1:1) */}
       <div className="bg-[#06372C] text-[#FEF3C7] rounded-3xl p-4 sm:p-6 shadow-sm border border-[#052e24] space-y-4">
         {/* Stage 1: Header Title, Juma Badge & Dual Calendar (Gregorian + Hijri) */}
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#EAB308]">
               <Clock className="w-3.5 h-3.5 shrink-0" />
-              <span>РАСПИСАНИЕ НАМАЗОВ · 12 ОКТ — 9 ДЕК</span>
+              <span>РАСПИСАНИЕ НАМАЗОВ · 12 ОКТ — 8 ЯНВ</span>
               {selectedDay.isJuma && (
                 <span className="px-2 py-0.5 rounded bg-[#EAB308] text-slate-950 text-[10px] font-bold normal-case tracking-normal">
                   Җомга көн
@@ -310,7 +323,7 @@ export default function PrayerTimesBlock({
           <div className="text-xs sm:text-sm text-[#A7F3D0]/95 font-sans leading-relaxed">
             <span>Миләди: </span>
             <strong className="font-bold text-[#FEF3C7]">
-              {formatMiladiFull(selectedDay.miladiDate)} 2026 г.
+              {formatMiladiFull(selectedDay.miladiDate)} {selectedDay.monthNum === 1 ? 2027 : 2026} г.
             </strong>
             <span>
               {' '}
@@ -324,7 +337,7 @@ export default function PrayerTimesBlock({
           </div>
         </div>
 
-        {/* Stage 1: Date Stepper Row: <  [ Calendar 8 ноя · Якшәмбе (Воскресенье) · 27 Җөмадиәл-әввәл 1448 v ]  > */}
+        {/* Stage 1: Date Stepper Row */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -533,23 +546,23 @@ export default function PrayerTimesBlock({
           </div>
         </div>
 
-        {/* Full-Width Stacked Pill Buttons (matching first screenshot + Зикры после намаза) */}
+        {/* Full-Width Stacked Pill Buttons */}
         <div className="space-y-2.5 pt-1">
           <button
             type="button"
             onClick={() => setShowOriginalImage((prev) => !prev)}
-            className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+            className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <ImageIcon className="w-4 h-4 text-[#EAB308] shrink-0" />
             <span>
-              {showOriginalImage ? 'Скрыть оригиналы таблиц (2)' : 'Оригиналы таблиц (2)'}
+              {showOriginalImage ? 'Скрыть оригиналы таблиц (3)' : 'Оригиналы таблиц (3)'}
             </span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowFullTable((prev) => !prev)}
-            className="w-full rounded-full py-2.5 px-4 bg-[#31552A] hover:bg-[#3A6432] border border-[#728C3A] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+            className="w-full rounded-full py-2.5 px-4 bg-[#31552A] hover:bg-[#3A6432] border border-[#728C3A] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <span>{showFullTable ? 'Скрыть расписание' : 'Показать расписание'}</span>
             <ChevronDown
@@ -563,7 +576,7 @@ export default function PrayerTimesBlock({
             <button
               type="button"
               onClick={onStartPostSalahTasbih}
-              className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+              className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-[#EAB308] shrink-0" />
               <span>Зикры после намаза</span>
@@ -572,22 +585,22 @@ export default function PrayerTimesBlock({
         </div>
       </div>
 
-      {/* Optional Original Image Preview (both images: 12 Oct - 9 Nov & 10 Nov - 9 Dec) */}
+      {/* Optional Original Image Preview (all 3 images: 12 Oct - 9 Nov, 10 Nov - 9 Dec & 10 Dec - 8 Jan) */}
       {showOriginalImage && (
         <div className="rounded-xl bg-[#F8F6F1] border border-stone-200 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold text-slate-800">
-              Оригинальные изображения расписания намазов (12 окт — 9 ноя и 10 ноя — 9 дек)
+              Оригинальные изображения расписания намазов (12 окт — 9 ноя, 10 ноя — 9 дек и 10 дек — 8 янв)
             </div>
             <button
               type="button"
               onClick={() => setShowOriginalImage(false)}
-              className="text-xs font-medium text-amber-900 hover:underline"
+              className="text-xs font-medium text-amber-900 hover:underline cursor-pointer"
             >
               Свернуть фото
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {PRAYER_PERIODS.map((period) => (
               <div
                 key={period.id}
@@ -609,6 +622,7 @@ export default function PrayerTimesBlock({
                   <img
                     src={period.imageSrc}
                     alt={`Расписание времени намаза: ${period.label}`}
+                    referrerPolicy="no-referrer"
                     className="max-w-full h-auto max-h-[640px] rounded border border-stone-200"
                   />
                 </div>
@@ -624,10 +638,10 @@ export default function PrayerTimesBlock({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-display">
-                Полное расписание намазов (12 октября — 9 декабря)
+                Полное расписание намазов (12 октября 2026 — 8 января 2027)
               </h3>
               <p className="text-xs text-stone-500">
-                Нажмите на любую строку таблицы, чтобы выбрать этот день. Пятничные дни (Җомга) и начало месяца (10 ноя) выделены зелёным цветом, как в оригинале.
+                Нажмите на любую строку таблицы, чтобы выбрать этот день. Пятничные дни (Җомга), начало месяца и благословенные ночи выделены зелёным цветом, как в оригинале.
               </p>
             </div>
 
@@ -636,13 +650,13 @@ export default function PrayerTimesBlock({
               <button
                 type="button"
                 onClick={() => setTableFilterPeriod('all')}
-                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
                   tableFilterPeriod === 'all'
                     ? 'bg-[#06372C] text-[#FEF3C7]'
                     : 'text-slate-700 hover:bg-stone-200/70'
                 }`}
               >
-                Все дни (59)
+                Все дни ({PRAYER_SCHEDULE_DAYS.length})
               </button>
               {PRAYER_PERIODS.map((period) => (
                 <button
@@ -706,9 +720,6 @@ export default function PrayerTimesBlock({
                   const rowPeriod =
                     PRAYER_PERIODS.find((p) => p.id === row.periodId) || PRAYER_PERIODS[0];
 
-                  // Match the uploaded images' exact visual styling:
-                  // - Juma (Friday) rows & 10 ноя (1 Hijri): solid bright green (#17A34A) with bold white text
-                  // - Alternating rows: soft light sage green (#D9ECCB) and white
                   let rowBgClass = isEvenRow
                     ? 'bg-[#D9ECCB] text-slate-900 hover:bg-[#C9E3B6]'
                     : 'bg-white text-slate-900 hover:bg-stone-100';
@@ -763,6 +774,19 @@ export default function PrayerTimesBlock({
               </tbody>
             </table>
           </div>
+
+          {(tableFilterPeriod === 'all' || tableFilterPeriod === 'dec10_jan8') && (
+            <div className="rounded-xl bg-[#F8F6F1] border border-stone-200 p-3.5 text-xs sm:text-sm text-slate-800 space-y-1.5 font-serif leading-relaxed">
+              <div>
+                <strong className="text-red-700 font-bold">1-2 рәҗәб</strong>, пәнҗешәмбе / җомга (10-11 декабрь) –{' '}
+                <strong className="font-bold text-slate-950">Рәгаиб кичәсе</strong>. Пәйгамбәребез Мөхәммәд (с.г.с.)нең әтисе Габдуллаһ һәм әнисе Әминәнең никах кичәсе һәм көне.
+              </div>
+              <div>
+                <strong className="text-red-700 font-bold">26 рәҗәб</strong>, дүшәмбе (4 гыйнвар) – Рәсүлебез Мөхәммәд (с.г.с.)нең{' '}
+                <strong className="font-bold text-slate-950">Мигъраҗ кичәсе</strong>.
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>

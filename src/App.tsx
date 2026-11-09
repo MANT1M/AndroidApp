@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Search,
   Settings,
+  Smartphone,
   Sparkles,
   Sun,
   Trophy,
@@ -56,8 +57,9 @@ import {
 import TasbihSection from './components/TasbihSection';
 import PrayerTimesBlock from './components/PrayerTimesBlock';
 import DuaSection, { HomeDuaBlock } from './components/DuaSection';
+import AndroidWidgetSimulator from './components/AndroidWidgetSimulator';
 
-type ActiveSection = 'tasbih' | 'dua' | 'prayer' | 'library' | 'reader' | 'quiz' | 'apk';
+type ActiveSection = 'tasbih' | 'dua' | 'prayer' | 'library' | 'reader' | 'quiz' | 'apk' | 'widgets';
 
 const STORAGE_KEY_PROGRESS_V2 = 'interactive_reader_catalog_progress_v2';
 const STORAGE_KEY_SETTINGS = 'interactive_reader_datastore_settings_v1';
@@ -276,7 +278,20 @@ function BookCoverPoster({
 }
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState<ActiveSection>('prayer');
+  const [activeSection, setActiveSection] = useState<ActiveSection>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'widgets') return 'widgets';
+    }
+    return 'prayer';
+  });
+  const [isWidgetsFullScreen, setIsWidgetsFullScreen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('view') === 'widgets';
+    }
+    return false;
+  });
   const [tasbihCategory, setTasbihCategory] = useState<TasbihCategoryId>('all');
   const [externalSelectedDhikrId, setExternalSelectedDhikrId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(() => {
@@ -287,7 +302,7 @@ export default function App() {
     }
   });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
-  const [loginInputEmail, setLoginInputEmail] = useState<string>('1tim.manti777@gmail.com');
+  const [loginInputEmail, setLoginInputEmail] = useState<string>('');
   const [progressMap, setProgressMap] = useState<Record<number, ChapterProgressRecord>>(
     getInitialCatalogProgress
   );
@@ -835,6 +850,7 @@ export default function App() {
 
   const handleLogout = () => {
     setUserEmail(null);
+    setLoginInputEmail('');
     try {
       localStorage.removeItem('interactive_reader_user_email');
     } catch {}
@@ -975,23 +991,54 @@ export default function App() {
               </button>
             </div>
 
-            <div className="flex items-center">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => setActiveSection('library')}
                 className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[13px] sm:text-[15px] leading-none flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 transition-colors ${
-                  isNavLibrary
+                  isNavLibrary && activeSection !== 'apk'
                     ? 'bg-[#FEF3C7] text-[#06372C] font-bold shadow-xs'
                     : 'bg-[#124235] hover:bg-[#185243] text-[#FEF3C7] font-semibold border border-white/5'
                 }`}
               >
                 <BookOpen
                   className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
-                    isNavLibrary ? 'text-[#06372C]' : 'text-[#EAB308]'
+                    isNavLibrary && activeSection !== 'apk' ? 'text-[#06372C]' : 'text-[#EAB308]'
                   }`}
                 />
                 <span>Книги</span>
               </button>
+
+              {typeof window !== 'undefined' && window.location.protocol !== 'file:' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('widgets')}
+                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[13px] sm:text-[15px] leading-none flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                      activeSection === 'widgets'
+                        ? 'bg-[#FEF3C7] text-[#06372C] font-bold shadow-xs'
+                        : 'bg-[#124235] hover:bg-[#185243] text-[#FEF3C7] font-semibold border border-white/5'
+                    }`}
+                  >
+                    <Smartphone
+                      className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
+                        activeSection === 'widgets' ? 'text-[#06372C]' : 'text-[#EAB308]'
+                      }`}
+                    />
+                    <span>Виджеты Android</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadApk}
+                    disabled={isDownloadingApk}
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[13px] sm:text-[15px] leading-none flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 transition-colors bg-[#EAB308] hover:bg-[#FACC15] text-[#06372C] font-bold shadow-xs cursor-pointer disabled:opacity-60"
+                  >
+                    <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#06372C] shrink-0" />
+                    <span>{isDownloadingApk ? 'Скачивание APK...' : 'Скачать APK'}</span>
+                  </button>
+                </>
+              )}
             </div>
           </nav>
         </header>
@@ -1086,6 +1133,18 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-5">
+        {/* SECTION: VIRTUAL ANDROID WIDGETS SIMULATOR (STANDALONE OR TAB) */}
+        {activeSection === 'widgets' && (
+          <AndroidWidgetSimulator
+            isStandaloneFullScreen={isWidgetsFullScreen}
+            onToggleStandaloneFullScreen={() => setIsWidgetsFullScreen((prev) => !prev)}
+            onBackToApp={() => {
+              setIsWidgetsFullScreen(false);
+              setActiveSection('prayer');
+            }}
+          />
+        )}
+
         {/* SECTION 0: PRAYER TIMES FULL VIEW (FIRST PLACE) */}
         {activeSection === 'prayer' && (
           <div className="space-y-4">
