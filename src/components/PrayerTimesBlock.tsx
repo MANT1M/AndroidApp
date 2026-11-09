@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Compass,
   Image as ImageIcon,
   Moon,
   Sparkles,
@@ -22,6 +23,7 @@ import {
 
 interface PrayerTimesBlockProps {
   onStartPostSalahTasbih?: () => void;
+  onOpenQibla?: () => void;
   defaultShowFullTable?: boolean;
 }
 
@@ -91,6 +93,7 @@ function pluralizeDaysRu(days: number): string {
 
 export default function PrayerTimesBlock({
   onStartPostSalahTasbih,
+  onOpenQibla,
   defaultShowFullTable = false,
 }: PrayerTimesBlockProps) {
   const [now, setNow] = useState<Date>(() => new Date());
@@ -580,6 +583,17 @@ export default function PrayerTimesBlock({
             >
               <Sparkles className="w-4 h-4 text-[#EAB308] shrink-0" />
               <span>Зикры после намаза</span>
+            </button>
+          )}
+
+          {onOpenQibla && (
+            <button
+              type="button"
+              onClick={onOpenQibla}
+              className="w-full rounded-full py-2.5 px-4 bg-[#0B4A39] hover:bg-[#125C48] border border-[#EAB308]/50 text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
+            >
+              <Compass className="w-4 h-4 text-[#EAB308] shrink-0" />
+              <span>Направление Киблы (Компас и Карта по дому)</span>
             </button>
           )}
         </div>

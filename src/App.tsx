@@ -58,8 +58,18 @@ import TasbihSection from './components/TasbihSection';
 import PrayerTimesBlock from './components/PrayerTimesBlock';
 import DuaSection, { HomeDuaBlock } from './components/DuaSection';
 import AndroidWidgetSimulator from './components/AndroidWidgetSimulator';
+import QiblaSection from './components/QiblaSection';
 
-type ActiveSection = 'tasbih' | 'dua' | 'prayer' | 'library' | 'reader' | 'quiz' | 'apk' | 'widgets';
+type ActiveSection =
+  | 'tasbih'
+  | 'dua'
+  | 'prayer'
+  | 'qibla'
+  | 'library'
+  | 'reader'
+  | 'quiz'
+  | 'apk'
+  | 'widgets';
 
 const STORAGE_KEY_PROGRESS_V2 = 'interactive_reader_catalog_progress_v2';
 const STORAGE_KEY_SETTINGS = 'interactive_reader_datastore_settings_v1';
@@ -866,6 +876,7 @@ export default function App() {
       tasbihCategory === 'easy_deeds' ||
       tasbihCategory === 'istighfar_salawat');
   const isNavDua = activeSection === 'dua';
+  const isNavQibla = activeSection === 'qibla';
   const isNavAzkar = activeSection === 'tasbih' && tasbihCategory === 'morning_evening';
   const isNavLibrary =
     activeSection === 'library' ||
@@ -992,6 +1003,23 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSection('qibla')}
+                className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[13px] sm:text-[15px] leading-none flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  isNavQibla
+                    ? 'bg-[#FEF3C7] text-[#06372C] font-bold shadow-xs'
+                    : 'bg-[#124235] hover:bg-[#185243] text-[#FEF3C7] font-semibold border border-white/5'
+                }`}
+              >
+                <Compass
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
+                    isNavQibla ? 'text-[#06372C]' : 'text-[#EAB308]'
+                  }`}
+                />
+                <span>Кибла</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveSection('library')}
@@ -1145,6 +1173,9 @@ export default function App() {
           />
         )}
 
+        {/* SECTION: QIBLA COMPASS & INTERACTIVE HOUSE MAP */}
+        {activeSection === 'qibla' && <QiblaSection />}
+
         {/* SECTION 0: PRAYER TIMES FULL VIEW (FIRST PLACE) */}
         {activeSection === 'prayer' && (
           <div className="space-y-4">
@@ -1155,6 +1186,9 @@ export default function App() {
                 setTasbihCategory('after_salah');
                 setActiveSection('tasbih');
                 showToast('Переход к Тасбиху после намаза');
+              }}
+              onOpenQibla={() => {
+                setActiveSection('qibla');
               }}
             />
 

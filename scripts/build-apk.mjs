@@ -138,9 +138,12 @@ function buildStandaloneReaderHtml() {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Простые благодеяния — Намаз, Дуа, Тасбих и Книги</title>
+<title>Простые благодеяния — Намаз, Кибла, Дуа, Тасбих и Книги</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin />
+<link rel="preconnect" href="https://core-sat.maps.yandex.net" crossorigin />
+<link rel="preconnect" href="https://nominatim.openstreetmap.org" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700;800&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
 ${compiledCss}
@@ -586,6 +589,8 @@ function buildManifestXml() {
     'com.example.interactivereader',
     '1.6.0',
     'android.permission.INTERNET',
+    'android.permission.ACCESS_FINE_LOCATION',
+    'android.permission.ACCESS_COARSE_LOCATION',
     'Простые благодеяния',
     'Выбор вида виджета (Уфа)',
     '1. Время намаза · Изумруд (Уфа)',
@@ -614,11 +619,19 @@ function buildManifestXml() {
       { name: 'name', type: TYPE_STRING, val: 'android.permission.INTERNET' },
     ]),
     endEl('uses-permission', 4),
-    startEl('uses-sdk', 6, [
+    startEl('uses-permission', 5, [
+      { name: 'name', type: TYPE_STRING, val: 'android.permission.ACCESS_FINE_LOCATION' },
+    ]),
+    endEl('uses-permission', 5),
+    startEl('uses-permission', 6, [
+      { name: 'name', type: TYPE_STRING, val: 'android.permission.ACCESS_COARSE_LOCATION' },
+    ]),
+    endEl('uses-permission', 6),
+    startEl('uses-sdk', 7, [
       { name: 'minSdkVersion', type: TYPE_INT_DEC, data: 24 },
       { name: 'targetSdkVersion', type: TYPE_INT_DEC, data: 33 },
     ]),
-    endEl('uses-sdk', 6),
+    endEl('uses-sdk', 7),
     startEl('application', 8, [
       { name: 'theme', type: TYPE_REFERENCE, data: 0x01030224 },
       { name: 'label', type: TYPE_STRING, val: 'Простые благодеяния' },
