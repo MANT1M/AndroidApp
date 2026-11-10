@@ -138,7 +138,7 @@ function buildStandaloneReaderHtml() {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Простые благодеяния — Намаз, Кибла, Дуа, Тасбих и Книги</title>
+<title>Благие дела — Намаз, Кибла, Дуа, Тасбих и Книги</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="preconnect" href="https://core-renderer-tiles.maps.yandex.net" crossorigin />
@@ -587,11 +587,11 @@ function buildManifestXml() {
     'category',
     'meta-data',
     'com.example.interactivereader',
-    '1.6.0',
+    '1.9.0',
     'android.permission.INTERNET',
     'android.permission.ACCESS_FINE_LOCATION',
     'android.permission.ACCESS_COARSE_LOCATION',
-    'Простые благодеяния',
+    'Благие дела',
     'Выбор вида виджета (Уфа)',
     '1. Время намаза · Изумруд (Уфа)',
     '2. Время намаза · Матовое стекло (Уфа)',
@@ -606,13 +606,16 @@ function buildManifestXml() {
     'android.intent.action.DATE_CHANGED',
     'android.intent.action.TIME_SET',
     'android.intent.action.TIMEZONE_CHANGED',
+    'android.intent.action.USER_PRESENT',
+    'android.intent.action.BOOT_COMPLETED',
+    'android.intent.action.MY_PACKAGE_REPLACED',
     'android.appwidget.provider',
   ];
 
   return compileBinaryXml(attrDefs, extraStrings, ({ startEl, endEl }) => [
     startEl('manifest', 2, [
-      { name: 'versionCode', type: TYPE_INT_DEC, data: 6 },
-      { name: 'versionName', type: TYPE_STRING, val: '1.6.0' },
+      { name: 'versionCode', type: TYPE_INT_DEC, data: 9 },
+      { name: 'versionName', type: TYPE_STRING, val: '1.9.0' },
       { name: 'package', noNs: true, type: TYPE_STRING, val: 'com.example.interactivereader' },
     ]),
     startEl('uses-permission', 4, [
@@ -634,12 +637,13 @@ function buildManifestXml() {
     endEl('uses-sdk', 7),
     startEl('application', 8, [
       { name: 'theme', type: TYPE_REFERENCE, data: 0x01030224 },
-      { name: 'label', type: TYPE_STRING, val: 'Простые благодеяния' },
+      { name: 'label', type: TYPE_STRING, val: 'Благие дела' },
       { name: 'icon', type: TYPE_REFERENCE, data: 0x7f010000 },
       { name: 'hardwareAccelerated', type: TYPE_INT_BOOLEAN, data: 0xffffffff },
     ]),
     // 1. MainActivity
     startEl('activity', 12, [
+      { name: 'label', type: TYPE_STRING, val: 'Благие дела' },
       { name: 'icon', type: TYPE_REFERENCE, data: 0x7f010000 },
       { name: 'name', type: TYPE_STRING, val: 'com.example.interactivereader.MainActivity' },
       { name: 'exported', type: TYPE_INT_BOOLEAN, data: 0xffffffff },
@@ -693,15 +697,27 @@ function buildManifestXml() {
       { name: 'name', type: TYPE_STRING, val: 'android.intent.action.TIMEZONE_CHANGED' },
     ]),
     endEl('action', 35),
-    endEl('intent-filter', 36),
-    startEl('meta-data', 37, [
+    startEl('action', 36, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.USER_PRESENT' },
+    ]),
+    endEl('action', 36),
+    startEl('action', 37, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.BOOT_COMPLETED' },
+    ]),
+    endEl('action', 37),
+    startEl('action', 38, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.MY_PACKAGE_REPLACED' },
+    ]),
+    endEl('action', 38),
+    endEl('intent-filter', 39),
+    startEl('meta-data', 40, [
       { name: 'name', type: TYPE_STRING, val: 'android.appwidget.provider' },
       { name: 'resource', type: TYPE_REFERENCE, data: 0x7f030000 }, // @xml/prayer_widget_info
     ]),
-    endEl('meta-data', 37),
-    endEl('receiver', 38),
+    endEl('meta-data', 40),
+    endEl('receiver', 41),
     // 4. Receiver 2: PrayerWidgetFrostedProvider ("2. Время намаза · Матовое стекло (Уфа)")
-    startEl('receiver', 39, [
+    startEl('receiver', 42, [
       { name: 'label', type: TYPE_STRING, val: '2. Время намаза · Матовое стекло (Уфа)' },
       { name: 'icon', type: TYPE_REFERENCE, data: 0x7f010000 },
       {
@@ -711,32 +727,44 @@ function buildManifestXml() {
       },
       { name: 'exported', type: TYPE_INT_BOOLEAN, data: 0xffffffff },
     ]),
-    startEl('intent-filter', 42, []),
-    startEl('action', 43, [
+    startEl('intent-filter', 45, []),
+    startEl('action', 46, [
       { name: 'name', type: TYPE_STRING, val: 'android.appwidget.action.APPWIDGET_UPDATE' },
     ]),
-    endEl('action', 43),
-    startEl('action', 44, [
+    endEl('action', 46),
+    startEl('action', 47, [
       { name: 'name', type: TYPE_STRING, val: 'android.intent.action.DATE_CHANGED' },
     ]),
-    endEl('action', 44),
-    startEl('action', 45, [
+    endEl('action', 47),
+    startEl('action', 48, [
       { name: 'name', type: TYPE_STRING, val: 'android.intent.action.TIME_SET' },
     ]),
-    endEl('action', 45),
-    startEl('action', 46, [
+    endEl('action', 48),
+    startEl('action', 49, [
       { name: 'name', type: TYPE_STRING, val: 'android.intent.action.TIMEZONE_CHANGED' },
     ]),
-    endEl('action', 46),
-    endEl('intent-filter', 47),
-    startEl('meta-data', 48, [
+    endEl('action', 49),
+    startEl('action', 50, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.USER_PRESENT' },
+    ]),
+    endEl('action', 50),
+    startEl('action', 51, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.BOOT_COMPLETED' },
+    ]),
+    endEl('action', 51),
+    startEl('action', 52, [
+      { name: 'name', type: TYPE_STRING, val: 'android.intent.action.MY_PACKAGE_REPLACED' },
+    ]),
+    endEl('action', 52),
+    endEl('intent-filter', 53),
+    startEl('meta-data', 54, [
       { name: 'name', type: TYPE_STRING, val: 'android.appwidget.provider' },
       { name: 'resource', type: TYPE_REFERENCE, data: 0x7f030001 }, // @xml/prayer_widget_frosted_info
     ]),
-    endEl('meta-data', 48),
-    endEl('receiver', 49),
-    endEl('application', 50),
-    endEl('manifest', 51),
+    endEl('meta-data', 54),
+    endEl('receiver', 55),
+    endEl('application', 56),
+    endEl('manifest', 57),
   ]);
 }
 
@@ -1460,6 +1488,7 @@ function buildClassesDex(scheduleDays) {
     'LLI',
     'LLILI',
     'Landroid/app/Activity;',
+    'Landroid/app/AlarmManager;',
     'Landroid/app/PendingIntent;',
     'Landroid/appwidget/AppWidgetManager;',
     'Landroid/appwidget/AppWidgetProvider;',
@@ -1481,12 +1510,14 @@ function buildClassesDex(scheduleDays) {
     'Lcom/example/interactivereader/WidgetConfigActivity;',
     'Ljava/lang/CharSequence;',
     'Ljava/lang/Class;',
+    'Ljava/lang/Object;',
     'Ljava/lang/String;',
     'Ljava/util/Calendar;',
     'Ljava/util/TimeZone;',
     'V',
     'VI',
     'VII',
+    'VIJL',
     'VIJLZ',
     'VIL',
     'VILI',
@@ -1499,6 +1530,7 @@ function buildClassesDex(scheduleDays) {
     'VZ',
     'Z',
     '[I',
+    'alarm',
     'appWidgetId',
     'buildViews',
     'canGoBack',
@@ -1511,6 +1543,7 @@ function buildClassesDex(scheduleDays) {
     'get',
     'getActivity',
     'getAppWidgetIds',
+    'getBroadcast',
     'getId',
     'getInstance',
     'getInt',
@@ -1521,6 +1554,7 @@ function buildClassesDex(scheduleDays) {
     'getSettings',
     'getSharedPreferences',
     'getStr',
+    'getSystemService',
     'getTimeZone',
     'goBack',
     'loadUrl',
@@ -1531,6 +1565,7 @@ function buildClassesDex(scheduleDays) {
     'onUpdate',
     'putExtra',
     'putInt',
+    'setAndAllowWhileIdle',
     'setBackgroundResource',
     'setChronometer',
     'setChronometerCountDown',
@@ -1545,6 +1580,7 @@ function buildClassesDex(scheduleDays) {
     'setTextViewText',
     'styleCard',
     'theme',
+    'updateAll',
     'updateAppWidget',
     'webView',
     'widget_prefs',
@@ -1562,6 +1598,7 @@ function buildClassesDex(scheduleDays) {
     'I',
     'J',
     'Landroid/app/Activity;',
+    'Landroid/app/AlarmManager;',
     'Landroid/app/PendingIntent;',
     'Landroid/appwidget/AppWidgetManager;',
     'Landroid/appwidget/AppWidgetProvider;',
@@ -1583,6 +1620,7 @@ function buildClassesDex(scheduleDays) {
     'Lcom/example/interactivereader/WidgetConfigActivity;',
     'Ljava/lang/CharSequence;',
     'Ljava/lang/Class;',
+    'Ljava/lang/Object;',
     'Ljava/lang/String;',
     'Ljava/util/Calendar;',
     'Ljava/util/TimeZone;',
@@ -1637,6 +1675,7 @@ function buildClassesDex(scheduleDays) {
       ret: 'Landroid/widget/RemoteViews;',
       params: ['Landroid/content/Context;', 'I'],
     },
+    { shorty: 'LL', ret: 'Ljava/lang/Object;', params: ['Ljava/lang/String;'] },
     { shorty: 'L', ret: 'Ljava/lang/String;', params: [] },
     { shorty: 'LI', ret: 'Ljava/lang/String;', params: ['I'] },
     { shorty: 'LL', ret: 'Ljava/util/Calendar;', params: ['Ljava/util/TimeZone;'] },
@@ -1644,6 +1683,11 @@ function buildClassesDex(scheduleDays) {
     { shorty: 'V', ret: 'V', params: [] },
     { shorty: 'VI', ret: 'V', params: ['I'] },
     { shorty: 'VII', ret: 'V', params: ['I', 'I'] },
+    {
+      shorty: 'VIJL',
+      ret: 'V',
+      params: ['I', 'J', 'Landroid/app/PendingIntent;'],
+    },
     {
       shorty: 'VIJLZ',
       ret: 'V',
@@ -1790,10 +1834,23 @@ function buildClassesDex(scheduleDays) {
       ret: 'V',
       params: ['I', 'Landroid/content/Intent;'],
     },
+    // AlarmManager
+    {
+      cls: 'Landroid/app/AlarmManager;',
+      name: 'setAndAllowWhileIdle',
+      ret: 'V',
+      params: ['I', 'J', 'Landroid/app/PendingIntent;'],
+    },
     // PendingIntent
     {
       cls: 'Landroid/app/PendingIntent;',
       name: 'getActivity',
+      ret: 'Landroid/app/PendingIntent;',
+      params: ['Landroid/content/Context;', 'I', 'Landroid/content/Intent;', 'I'],
+    },
+    {
+      cls: 'Landroid/app/PendingIntent;',
+      name: 'getBroadcast',
       ret: 'Landroid/app/PendingIntent;',
       params: ['Landroid/content/Context;', 'I', 'Landroid/content/Intent;', 'I'],
     },
@@ -1849,6 +1906,12 @@ function buildClassesDex(scheduleDays) {
       name: 'getSharedPreferences',
       ret: 'Landroid/content/SharedPreferences;',
       params: ['Ljava/lang/String;', 'I'],
+    },
+    {
+      cls: 'Landroid/content/Context;',
+      name: 'getSystemService',
+      ret: 'Ljava/lang/Object;',
+      params: ['Ljava/lang/String;'],
     },
     // Intent
     { cls: 'Landroid/content/Intent;', name: '<init>', ret: 'V', params: [] },
@@ -2039,6 +2102,12 @@ function buildClassesDex(scheduleDays) {
       ret: 'V',
       params: ['Landroid/widget/RemoteViews;', 'I', 'I', 'I'],
     },
+    {
+      cls: 'Lcom/example/interactivereader/PrayerWidgetProvider;',
+      name: 'updateAll',
+      ret: 'V',
+      params: ['Landroid/content/Context;'],
+    },
     // WidgetConfigActivity
     {
       cls: 'Lcom/example/interactivereader/WidgetConfigActivity;',
@@ -2187,6 +2256,12 @@ function buildClassesDex(scheduleDays) {
   const mSetContentViewView = methodIdx('Landroid/app/Activity;', 'setContentView', 'V', [
     'Landroid/view/View;',
   ]);
+  const mUpdateAll = methodIdx(
+    'Lcom/example/interactivereader/PrayerWidgetProvider;',
+    'updateAll',
+    'V',
+    ['Landroid/content/Context;']
+  );
 
   const onCreateCodeItem = makeCodeItem(
     5,
@@ -2205,6 +2280,7 @@ function buildClassesDex(scheduleDays) {
       0x1a, 0x02, ...u16(sUrl),
       0x6e, 0x20, ...u16(mLoadUrl), 0x20, 0x00,
       0x6e, 0x20, ...u16(mSetContentViewView), 0x03, 0x00,
+      0x71, 0x10, ...u16(mUpdateAll), 0x03, 0x00, // Refresh all home screen widgets on app launch
       0x0e, 0x00,
     ])
   );
@@ -2363,6 +2439,11 @@ function buildClassesDex(scheduleDays) {
   // 8. PrayerWidgetProvider.buildViews(Context v10, int v11) -> RemoteViews
   const tIntent = typeIdx('Landroid/content/Intent;');
   const tMainActivity = typeIdx('Lcom/example/interactivereader/MainActivity;');
+  const tPrayerWidgetProvider = typeIdx('Lcom/example/interactivereader/PrayerWidgetProvider;');
+  const tPrayerWidgetFrostedProvider = typeIdx(
+    'Lcom/example/interactivereader/PrayerWidgetFrostedProvider;'
+  );
+  const tAlarmManager = typeIdx('Landroid/app/AlarmManager;');
   const mIntentInitCtxCls = methodIdx('Landroid/content/Intent;', '<init>', 'V', [
     'Landroid/content/Context;',
     'Ljava/lang/Class;',
@@ -2372,6 +2453,25 @@ function buildClassesDex(scheduleDays) {
     'getActivity',
     'Landroid/app/PendingIntent;',
     ['Landroid/content/Context;', 'I', 'Landroid/content/Intent;', 'I']
+  );
+  const mPendingIntentGetBroadcast = methodIdx(
+    'Landroid/app/PendingIntent;',
+    'getBroadcast',
+    'Landroid/app/PendingIntent;',
+    ['Landroid/content/Context;', 'I', 'Landroid/content/Intent;', 'I']
+  );
+  const sAlarm = strIdx('alarm');
+  const mGetSystemService = methodIdx(
+    'Landroid/content/Context;',
+    'getSystemService',
+    'Ljava/lang/Object;',
+    ['Ljava/lang/String;']
+  );
+  const mSetAndAllowWhileIdle = methodIdx(
+    'Landroid/app/AlarmManager;',
+    'setAndAllowWhileIdle',
+    'V',
+    ['I', 'J', 'Landroid/app/PendingIntent;']
   );
   const tRemoteViews = typeIdx('Landroid/widget/RemoteViews;');
   const mGetPackageName = methodIdx(
@@ -2593,13 +2693,22 @@ function buildClassesDex(scheduleDays) {
       0x14, 0x04, 0x14, 0x00, 0x02, 0x01, // const v4, 0x01020014
       0x6e, 0x30, ...u16(mSetTextViewText), 0x40, 0x03,
 
-      // 10. Compute baseMillis = SystemClock.elapsedRealtime() + (targetSec - nowSec) * 1000L in (v2, v3)
-      0xb1, 0x12, // sub-int/2addr v2, v1
+      // 10. Compute remainingSec in v2, alarmDelaySec in v8 = min(remainingSec, 900) + 1,
+      // and baseMillis = SystemClock.elapsedRealtime() + remainingSec * 1000L in (v2, v3)
+      0xb1, 0x12, // sub-int/2addr v2, v1 (v2 = remainingSec = targetSec - nowSec)
+      0x3d, 0x02, 0x03, 0x00, // if-gtz v2, +3
+      0x12, 0x12, // const/4 v2, 1
+      0x01, 0x28, // move v8, v2
+      0x13, 0x04, 0x84, 0x03, // const/16 v4, 900 (15 min)
+      0x37, 0x48, 0x03, 0x00, // if-le v8, v4, +3
+      0x01, 0x48, // move v8, v4
+      0xd8, 0x08, 0x08, 0x01, // add-int/lit8 v8, v8, 1 (alarmDelaySec = min(remainingSec, 900) + 1)
+
       0xd2, 0x22, 0xe8, 0x03, // mul-int/lit16 v2, v2, 1000
       0x81, 0x22, // int-to-long v2, v2 (v2, v3)
       0x71, 0x00, ...u16(mElapsedRealtime), 0x00, 0x00,
-      0x0b, 0x06, // move-result-wide v6 (v6, v7)
-      0xbb, 0x62, // add-long/2addr v2, v6
+      0x0b, 0x06, // move-result-wide v6 (v6, v7 = elapsedRealtime)
+      0xbb, 0x62, // add-long/2addr v2, v6 (v2, v3 = baseMillis)
 
       // 11. Start live countdown on Chronometer (@android:id/text2 = 0x01020015)
       0x14, 0x01, 0x15, 0x00, 0x02, 0x01, // const v1, 0x01020015
@@ -2607,12 +2716,34 @@ function buildClassesDex(scheduleDays) {
       0x12, 0x15, // const/4 v5, 1 (true)
       0x6e, 0x30, ...u16(mSetChronometerCountDown), 0x10, 0x05,
       0x74, 0x06, ...u16(mSetChronometer), 0x00, 0x00,
+
+      // 12. Schedule AlarmManager.setAndAllowWhileIdle wakeup & bind tap-to-refresh on countdown pill (0x7f040002)
+      0xd2, 0x88, 0xe8, 0x03, // mul-int/lit16 v8, v8, 1000
+      0x81, 0x82, // int-to-long v2, v8
+      0xbb, 0x62, // add-long/2addr v2, v6 (v2, v3 = triggerAtMillis)
+      0x22, 0x01, ...u16(tIntent), // new-instance v1, Landroid/content/Intent;
+      0x1c, 0x04, ...u16(tPrayerWidgetProvider), // const-class v4, PrayerWidgetProvider.class
+      0x70, 0x30, ...u16(mIntentInitCtxCls), 0xa1, 0x04, // invoke-direct {v1, v10, v4}, Intent.<init>
+      0x12, 0x04, // const/4 v4, 0
+      0x15, 0x05, 0x00, 0x0c, // const/high16 v5, 0x0c000000 (FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE)
+      0x71, 0x40, ...u16(mPendingIntentGetBroadcast), 0x4a, 0x51, // invoke-static {v10, v4, v1, v5}, PendingIntent.getBroadcast
+      0x0c, 0x04, // move-result-object v4 (v4 = alarmPi)
+      0x14, 0x01, 0x02, 0x00, 0x04, 0x7f, // const v1, 0x7f040002 (countdown pill container)
+      0x6e, 0x30, ...u16(mSetOnClickPendingIntent), 0x10, 0x04, // views.setOnClickPendingIntent(0x7f040002, alarmPi)
+      0x1a, 0x01, ...u16(sAlarm), // const-string v1, "alarm"
+      0x6e, 0x20, ...u16(mGetSystemService), 0x1a, 0x00, // v10.getSystemService("alarm")
+      0x0c, 0x05, // move-result-object v5
+      0x1f, 0x05, ...u16(tAlarmManager), // check-cast v5, Landroid/app/AlarmManager;
+      0x38, 0x05, 0x06, 0x00, // if-eqz v5, +6
+      0x12, 0x21, // const/4 v1, 2 (ELAPSED_REALTIME_WAKEUP)
+      0x6e, 0x54, ...u16(mSetAndAllowWhileIdle), 0x15, 0x32, // v5.setAndAllowWhileIdle(2, triggerAtMillis, alarmPi)
+
       0x11, 0x00, // return-object v0
     ])
   );
 
-  // 9. PrayerWidgetProvider.onReceive(Context v4, Intent v5)V
-  // Calls super.onReceive(v4, v5) and then refreshes all instances of PrayerWidgetProvider
+  // 9. PrayerWidgetProvider.updateAll(Context v4)V
+  // Updates all instances of both PrayerWidgetProvider (using saved theme) and PrayerWidgetFrostedProvider
   const mSuperOnReceive = methodIdx(
     'Landroid/appwidget/AppWidgetProvider;',
     'onReceive',
@@ -2626,10 +2757,6 @@ function buildClassesDex(scheduleDays) {
     ['Landroid/content/Context;']
   );
   const tComponentName = typeIdx('Landroid/content/ComponentName;');
-  const tPrayerWidgetProvider = typeIdx('Lcom/example/interactivereader/PrayerWidgetProvider;');
-  const tPrayerWidgetFrostedProvider = typeIdx(
-    'Lcom/example/interactivereader/PrayerWidgetFrostedProvider;'
-  );
   const mComponentNameInit = methodIdx(
     'Landroid/content/ComponentName;',
     '<init>',
@@ -2654,26 +2781,6 @@ function buildClassesDex(scheduleDays) {
     'V',
     ['Landroid/content/Context;', 'Landroid/appwidget/AppWidgetManager;', '[I']
   );
-
-  const widgetOnReceiveCodeItem = makeCodeItem(
-    6,
-    3,
-    4,
-    Buffer.from([
-      0x6f, 0x30, ...u16(mSuperOnReceive), 0x43, 0x05,
-      0x71, 0x10, ...u16(mAppWidgetGetInstance), 0x04, 0x00,
-      0x0c, 0x00, // v0 = AppWidgetManager
-      0x22, 0x01, ...u16(tComponentName),
-      0x1c, 0x02, ...u16(tPrayerWidgetProvider),
-      0x70, 0x30, ...u16(mComponentNameInit), 0x41, 0x02,
-      0x6e, 0x20, ...u16(mGetAppWidgetIds), 0x10, 0x00,
-      0x0c, 0x01, // v1 = int[] appWidgetIds
-      0x6e, 0x40, ...u16(mProviderOnUpdate), 0x43, 0x10,
-      0x0e, 0x00,
-    ])
-  );
-
-  // 10. PrayerWidgetProvider.onUpdate(Context v4, AppWidgetManager v5, int[] v6)V
   const mGetSharedPreferences = methodIdx(
     'Landroid/content/Context;',
     'getSharedPreferences',
@@ -2701,6 +2808,59 @@ function buildClassesDex(scheduleDays) {
     ['[I', 'Landroid/widget/RemoteViews;']
   );
 
+  const widgetUpdateAllCodeItem = makeCodeItem(
+    5,
+    1,
+    3,
+    Buffer.from([
+      // 1. v0 = AppWidgetManager.getInstance(v4)
+      0x71, 0x10, ...u16(mAppWidgetGetInstance), 0x04, 0x00,
+      0x0c, 0x00,
+      // 2. Read theme from SharedPreferences("widget_prefs", 0) -> v2
+      0x1a, 0x01, ...u16(sWidgetPrefs),
+      0x12, 0x02,
+      0x6e, 0x30, ...u16(mGetSharedPreferences), 0x14, 0x02,
+      0x0c, 0x01,
+      0x1a, 0x02, ...u16(sTheme),
+      0x14, 0x03, 0x00, 0x00, 0x02, 0x7f,
+      0x72, 0x30, ...u16(mPrefsGetInt), 0x21, 0x03,
+      0x0a, 0x02,
+      // 3. Update all PrayerWidgetProvider instances
+      0x71, 0x20, ...u16(mBuildViews), 0x24, 0x00,
+      0x0c, 0x01,
+      0x22, 0x02, ...u16(tComponentName),
+      0x1c, 0x03, ...u16(tPrayerWidgetProvider),
+      0x70, 0x30, ...u16(mComponentNameInit), 0x42, 0x03,
+      0x6e, 0x20, ...u16(mGetAppWidgetIds), 0x20, 0x00,
+      0x0c, 0x02,
+      0x6e, 0x30, ...u16(mUpdateAppWidgetArr), 0x20, 0x01,
+      // 4. Update all PrayerWidgetFrostedProvider instances (0x7f020001)
+      0x14, 0x02, 0x01, 0x00, 0x02, 0x7f,
+      0x71, 0x20, ...u16(mBuildViews), 0x24, 0x00,
+      0x0c, 0x01,
+      0x22, 0x02, ...u16(tComponentName),
+      0x1c, 0x03, ...u16(tPrayerWidgetFrostedProvider),
+      0x70, 0x30, ...u16(mComponentNameInit), 0x42, 0x03,
+      0x6e, 0x20, ...u16(mGetAppWidgetIds), 0x20, 0x00,
+      0x0c, 0x02,
+      0x6e, 0x30, ...u16(mUpdateAppWidgetArr), 0x20, 0x01,
+      0x0e, 0x00,
+    ])
+  );
+
+  // 10. PrayerWidgetProvider.onReceive(Context v4, Intent v5)V
+  const widgetOnReceiveCodeItem = makeCodeItem(
+    6,
+    3,
+    3,
+    Buffer.from([
+      0x6f, 0x30, ...u16(mSuperOnReceive), 0x43, 0x05,
+      0x71, 0x10, ...u16(mUpdateAll), 0x04, 0x00,
+      0x0e, 0x00,
+    ])
+  );
+
+  // 11. PrayerWidgetProvider.onUpdate(Context v4, AppWidgetManager v5, int[] v6)V
   const widgetOnUpdateCodeItem = makeCodeItem(
     7,
     4,
@@ -2721,7 +2881,7 @@ function buildClassesDex(scheduleDays) {
     ])
   );
 
-  // 11. PrayerWidgetFrostedProvider.<init>()V
+  // 12. PrayerWidgetFrostedProvider.<init>()V
   const frostedInitCodeItem = makeCodeItem(
     1,
     1,
@@ -2729,26 +2889,19 @@ function buildClassesDex(scheduleDays) {
     Buffer.from([0x70, 0x10, ...u16(mWidgetSuperInit), 0x00, 0x00, 0x0e, 0x00])
   );
 
-  // 12. PrayerWidgetFrostedProvider.onReceive(Context v4, Intent v5)V
+  // 13. PrayerWidgetFrostedProvider.onReceive(Context v4, Intent v5)V
   const frostedOnReceiveCodeItem = makeCodeItem(
     6,
     3,
-    4,
+    3,
     Buffer.from([
       0x6f, 0x30, ...u16(mSuperOnReceive), 0x43, 0x05,
-      0x71, 0x10, ...u16(mAppWidgetGetInstance), 0x04, 0x00,
-      0x0c, 0x00,
-      0x22, 0x01, ...u16(tComponentName),
-      0x1c, 0x02, ...u16(tPrayerWidgetFrostedProvider),
-      0x70, 0x30, ...u16(mComponentNameInit), 0x41, 0x02,
-      0x6e, 0x20, ...u16(mGetAppWidgetIds), 0x10, 0x00,
-      0x0c, 0x01,
-      0x6e, 0x40, ...u16(mFrostedOnUpdate), 0x43, 0x10,
+      0x71, 0x10, ...u16(mUpdateAll), 0x04, 0x00,
       0x0e, 0x00,
     ])
   );
 
-  // 13. PrayerWidgetFrostedProvider.onUpdate(Context v4, AppWidgetManager v5, int[] v6)V
+  // 14. PrayerWidgetFrostedProvider.onUpdate(Context v4, AppWidgetManager v5, int[] v6)V
   const frostedOnUpdateCodeItem = makeCodeItem(
     7,
     4,
@@ -2762,7 +2915,7 @@ function buildClassesDex(scheduleDays) {
     ])
   );
 
-  // 14. WidgetConfigActivity.<init>()V
+  // 15. WidgetConfigActivity.<init>()V
   const configInitCodeItem = makeCodeItem(
     1,
     1,
@@ -2770,7 +2923,7 @@ function buildClassesDex(scheduleDays) {
     Buffer.from([0x70, 0x10, ...u16(mActivityInit), 0x00, 0x00, 0x0e, 0x00])
   );
 
-  // 15. WidgetConfigActivity.onClick(View)V
+  // 16. WidgetConfigActivity.onClick(View)V
   const mViewGetId = methodIdx('Landroid/view/View;', 'getId', 'I');
   const mPrefsEdit = methodIdx(
     'Landroid/content/SharedPreferences;',
@@ -2842,7 +2995,7 @@ function buildClassesDex(scheduleDays) {
     ])
   );
 
-  // 16. WidgetConfigActivity.onCreate(Bundle)V
+  // 17. WidgetConfigActivity.onCreate(Bundle)V
   const mSetResultInt = methodIdx('Landroid/app/Activity;', 'setResult', 'V', ['I']);
   const mGetIntent = methodIdx(
     'Landroid/app/Activity;',
@@ -2932,7 +3085,7 @@ function buildClassesDex(scheduleDays) {
 
   const typeListsBuf = Buffer.concat(uniqueTypeLists);
 
-  // Code items
+  // Code items (17 total)
   const codeItem1Off = curTypeListOff;
   const codeItem2Off = codeItem1Off + initCodeItem.length;
   const codeItem3Off = codeItem2Off + onBackPressedCodeItem.length;
@@ -2942,14 +3095,15 @@ function buildClassesDex(scheduleDays) {
   const codeItem7Off = codeItem6Off + getSecCodeItem.length;
   const codeItem8Off = codeItem7Off + getStrCodeItem.length;
   const codeItem9Off = codeItem8Off + styleCardCodeItem.length;
-  const codeItem10Off = codeItem9Off + widgetOnReceiveCodeItem.length;
-  const codeItem11Off = codeItem10Off + widgetOnUpdateCodeItem.length;
-  const codeItem12Off = codeItem11Off + frostedInitCodeItem.length;
-  const codeItem13Off = codeItem12Off + frostedOnReceiveCodeItem.length;
-  const codeItem14Off = codeItem13Off + frostedOnUpdateCodeItem.length;
-  const codeItem15Off = codeItem14Off + configInitCodeItem.length;
-  const codeItem16Off = codeItem15Off + configOnClickCodeItem.length;
-  const afterCodeOff = codeItem16Off + configOnCreateCodeItem.length;
+  const codeItem10Off = codeItem9Off + widgetUpdateAllCodeItem.length;
+  const codeItem11Off = codeItem10Off + widgetOnReceiveCodeItem.length;
+  const codeItem12Off = codeItem11Off + widgetOnUpdateCodeItem.length;
+  const codeItem13Off = codeItem12Off + frostedInitCodeItem.length;
+  const codeItem14Off = codeItem13Off + frostedOnReceiveCodeItem.length;
+  const codeItem15Off = codeItem14Off + frostedOnUpdateCodeItem.length;
+  const codeItem16Off = codeItem15Off + configInitCodeItem.length;
+  const codeItem17Off = codeItem16Off + configOnClickCodeItem.length;
+  const afterCodeOff = codeItem17Off + configOnCreateCodeItem.length;
 
   const codeItemsBuf = Buffer.concat([
     initCodeItem,
@@ -2960,6 +3114,7 @@ function buildClassesDex(scheduleDays) {
     getSecCodeItem,
     getStrCodeItem,
     styleCardCodeItem,
+    widgetUpdateAllCodeItem,
     widgetOnReceiveCodeItem,
     widgetOnUpdateCodeItem,
     frostedInitCodeItem,
@@ -3039,17 +3194,17 @@ function buildClassesDex(scheduleDays) {
     uleb128(2),
     uleb128(mFrostedInit),
     uleb128(0x10001),
-    uleb128(codeItem11Off),
+    uleb128(codeItem12Off),
     uleb128(mFrostedOnReceive),
     uleb128(0x0001),
-    uleb128(codeItem12Off),
+    uleb128(codeItem13Off),
     uleb128(mFrostedOnUpdate - mFrostedOnReceive),
     uleb128(0x0001),
-    uleb128(codeItem13Off),
+    uleb128(codeItem14Off),
   ]);
 
   // 3) PrayerWidgetProvider
-  // Direct methods (sorted by methodIdx): <init>, buildViews, getSec, getStr, styleCard
+  // Direct methods (sorted by methodIdx): <init>, buildViews, getSec, getStr, styleCard, updateAll
   // Virtual methods (sorted by methodIdx): onReceive, onUpdate
   const mWidgetInit = methodIdx(
     'Lcom/example/interactivereader/PrayerWidgetProvider;',
@@ -3062,11 +3217,12 @@ function buildClassesDex(scheduleDays) {
     { idx: mGetSec, flags: 0x0009, off: codeItem6Off },
     { idx: mGetStr, flags: 0x0009, off: codeItem7Off },
     { idx: mStyleCard, flags: 0x0009, off: codeItem8Off },
+    { idx: mUpdateAll, flags: 0x0009, off: codeItem9Off },
   ].sort((a, b) => a.idx - b.idx);
 
   const virtualMethodsWidget = [
-    { idx: methodIdx('Lcom/example/interactivereader/PrayerWidgetProvider;', 'onReceive', 'V', ['Landroid/content/Context;', 'Landroid/content/Intent;']), flags: 0x0001, off: codeItem9Off },
-    { idx: mProviderOnUpdate, flags: 0x0001, off: codeItem10Off },
+    { idx: methodIdx('Lcom/example/interactivereader/PrayerWidgetProvider;', 'onReceive', 'V', ['Landroid/content/Context;', 'Landroid/content/Intent;']), flags: 0x0001, off: codeItem10Off },
+    { idx: mProviderOnUpdate, flags: 0x0001, off: codeItem11Off },
   ].sort((a, b) => a.idx - b.idx);
 
   const classData3Parts = [
@@ -3116,13 +3272,13 @@ function buildClassesDex(scheduleDays) {
     uleb128(0x0002),
     uleb128(mConfigInit),
     uleb128(0x10001),
-    uleb128(codeItem14Off),
+    uleb128(codeItem15Off),
     uleb128(mConfigOnClick),
     uleb128(0x0001),
-    uleb128(codeItem15Off),
+    uleb128(codeItem16Off),
     uleb128(mConfigOnCreate - mConfigOnClick),
     uleb128(0x0004),
-    uleb128(codeItem16Off),
+    uleb128(codeItem17Off),
   ]);
 
   let curOff = classData4Off + classData4Buf.length;
@@ -3139,7 +3295,7 @@ function buildClassesDex(scheduleDays) {
     { type: 0x0005, size: methods.length, offset: methodIdsOff },
     { type: 0x0006, size: 4, offset: classDefsOff },
     { type: 0x1001, size: uniqueTypeLists.length, offset: typeListsOff },
-    { type: 0x2001, size: 16, offset: codeItem1Off },
+    { type: 0x2001, size: 17, offset: codeItem1Off },
     { type: 0x2002, size: strings.length, offset: afterCodeOff },
     { type: 0x2000, size: 4, offset: classData1Off },
     { type: 0x1000, size: 1, offset: mapListOff },

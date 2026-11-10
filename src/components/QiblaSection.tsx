@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Compass,
-  Crosshair,
   Info,
   Layers,
   LocateFixed,
@@ -174,7 +173,6 @@ export default function QiblaSection() {
     lat: location.lat,
     lon: location.lon,
   }));
-  const [showProtractorOnMap, setShowProtractorOnMap] = useState<boolean>(true);
   const [tileLoadErrorCount, setTileLoadErrorCount] = useState<number>(0);
   const mapViewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
@@ -184,6 +182,7 @@ export default function QiblaSection() {
   const dragRef = useRef<{
     isDragging: boolean;
     moved: boolean;
+    wasMultiTouch: boolean;
     startX: number;
     startY: number;
     startCenterWorldX: number;
@@ -191,11 +190,32 @@ export default function QiblaSection() {
   }>({
     isDragging: false,
     moved: false,
+    wasMultiTouch: false,
     startX: 0,
     startY: 0,
     startCenterWorldX: 0,
     startCenterWorldY: 0,
   });
+
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{
+    isPinching: boolean;
+    lastStepDist: number;
+    lastMidX: number;
+    lastMidY: number;
+  }>({
+    isPinching: false,
+    lastStepDist: 0,
+    lastMidX: 0,
+    lastMidY: 0,
+  });
+  const mapStateRef = useRef<{ zoom: number; center: { lat: number; lon: number } }>({
+    zoom: mapZoom,
+    center: mapCenter,
+  });
+  useEffect(() => {
+    mapStateRef.current = { zoom: mapZoom, center: mapCenter };
+  }, [mapZoom, mapCenter]);
 
   // Save location changes to localStorage
   useEffect(() => {
@@ -607,55 +627,214 @@ export default function QiblaSection() {
     viewportSize.height,
   ]);
 
-  // Map pointer drag & click-to-set-house-pin handlers
-  const handleMapPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragRef.current = {
-      isDragging: true,
-      moved: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      startCenterWorldX: lonToWorldX(mapCenter.lon, mapZoom),
-      startCenterWorldY: latToWorldY(mapCenter.lat, mapZoom),
+  // Helper to zoom/pan around a specific viewport screen point (used by 2-finger pinch & mouse wheel)
+  const applyPinchOrZoomStep = useCallback(
+    (
+      nextZoomRaw: number,
+      fromScreenX: number,
+      fromScreenY: number,
+      toScreenX: number,
+      toScreenY: number
+    ) => {
+      const curZoom = mapStateRef.current.zoom;
+      const curCenter = mapStateRef.current.center;
+      const nextZoom = Math.max(3, Math.min(19, nextZoomRaw));
+
+      const centerWorldX = lonToWorldX(curCenter.lon, curZoom);
+      const centerWorldY = latToWorldY(curCenter.lat, curZoom);
+      const anchorWorldX = centerWorldX + (fromScreenX - viewportSize.width / 2);
+      const anchorWorldY = centerWorldY + (fromScreenY - viewportSize.height / 2);
+
+      const anchorLat = Math.max(-85, Math.min(85, worldYToLat(anchorWorldY, curZoom)));
+      const anchorLon = (((worldXToLon(anchorWorldX, curZoom) + 540) % 360) - 180);
+
+      const nextAnchorWorldX = lonToWorldX(anchorLon, nextZoom);
+      const nextAnchorWorldY = latToWorldY(anchorLat, nextZoom);
+      const nextCenterWorldX = nextAnchorWorldX - (toScreenX - viewportSize.width / 2);
+      const nextCenterWorldY = nextAnchorWorldY - (toScreenY - viewportSize.height / 2);
+
+      const nextCenter = {
+        lat: Math.max(-85, Math.min(85, worldYToLat(nextCenterWorldY, nextZoom))),
+        lon: (((worldXToLon(nextCenterWorldX, nextZoom) + 540) % 360) - 180),
+      };
+
+      mapStateRef.current = { zoom: nextZoom, center: nextCenter };
+      if (nextZoom !== curZoom) {
+        setMapZoom(nextZoom);
+      }
+      setMapCenter(nextCenter);
+    },
+    [lonToWorldX, latToWorldY, worldXToLon, worldYToLat, viewportSize.width, viewportSize.height]
+  );
+
+  const startTwoFingerPinch = (
+    p1: { x: number; y: number },
+    p2: { x: number; y: number }
+  ) => {
+    if (!mapViewportRef.current) return;
+    const rect = mapViewportRef.current.getBoundingClientRect();
+    const dist = Math.max(10, Math.hypot(p2.x - p1.x, p2.y - p1.y));
+    const midX = (p1.x + p2.x) / 2 - rect.left;
+    const midY = (p1.y + p2.y) / 2 - rect.top;
+
+    dragRef.current.wasMultiTouch = true;
+    dragRef.current.moved = true;
+    pinchRef.current = {
+      isPinching: true,
+      lastStepDist: dist,
+      lastMidX: midX,
+      lastMidY: midY,
     };
   };
 
+  const updateTwoFingerPinch = (
+    p1: { x: number; y: number },
+    p2: { x: number; y: number }
+  ) => {
+    if (!mapViewportRef.current) return;
+    const rect = mapViewportRef.current.getBoundingClientRect();
+    const dist = Math.max(10, Math.hypot(p2.x - p1.x, p2.y - p1.y));
+    const midX = (p1.x + p2.x) / 2 - rect.left;
+    const midY = (p1.y + p2.y) / 2 - rect.top;
+
+    if (!pinchRef.current.isPinching || pinchRef.current.lastStepDist <= 0) {
+      startTwoFingerPinch(p1, p2);
+      return;
+    }
+
+    const curZoom = mapStateRef.current.zoom;
+    const logRatio = Math.log2(dist / pinchRef.current.lastStepDist);
+    let nextZoom = curZoom;
+
+    // Step zoom level smoothly when fingers spread/pinch by ~19% (log2 ratio >= 0.25)
+    if (Math.abs(logRatio) >= 0.25) {
+      const steps =
+        logRatio > 0 ? Math.floor(logRatio / 0.25) : Math.ceil(logRatio / 0.25);
+      nextZoom = Math.max(3, Math.min(19, curZoom + steps));
+      pinchRef.current.lastStepDist = dist;
+    }
+
+    applyPinchOrZoomStep(
+      nextZoom,
+      pinchRef.current.lastMidX,
+      pinchRef.current.lastMidY,
+      midX,
+      midY
+    );
+
+    pinchRef.current.lastMidX = midX;
+    pinchRef.current.lastMidY = midY;
+  };
+
+  // Map pointer drag, 2-finger pinch-to-zoom & tap-to-set-house-pin handlers
+  const handleMapPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointersRef.current.size === 1) {
+      const curZoom = mapStateRef.current.zoom;
+      const curCenter = mapStateRef.current.center;
+      dragRef.current = {
+        isDragging: true,
+        moved: false,
+        wasMultiTouch: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        startCenterWorldX: lonToWorldX(curCenter.lon, curZoom),
+        startCenterWorldY: latToWorldY(curCenter.lat, curZoom),
+      };
+    } else if (activePointersRef.current.size >= 2) {
+      const pts = Array.from(activePointersRef.current.values());
+      startTwoFingerPinch(pts[0], pts[1]);
+    }
+  };
+
   const handleMapPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current.isDragging) return;
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (activePointersRef.current.size >= 2) {
+      const pts = Array.from(activePointersRef.current.values());
+      updateTwoFingerPinch(pts[0], pts[1]);
+      return;
+    }
+
+    if (!dragRef.current.isDragging || dragRef.current.wasMultiTouch) return;
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
     if (Math.hypot(dx, dy) > 5) {
       dragRef.current.moved = true;
     }
     if (dragRef.current.moved) {
+      const curZoom = mapStateRef.current.zoom;
       const nextWorldX = dragRef.current.startCenterWorldX - dx;
       const nextWorldY = dragRef.current.startCenterWorldY - dy;
-      setMapCenter({
-        lat: Math.max(-85, Math.min(85, worldYToLat(nextWorldY, mapZoom))),
-        lon: (((worldXToLon(nextWorldX, mapZoom) + 540) % 360) - 180),
-      });
+      const nextCenter = {
+        lat: Math.max(-85, Math.min(85, worldYToLat(nextWorldY, curZoom))),
+        lon: (((worldXToLon(nextWorldX, curZoom) + 540) % 360) - 180),
+      };
+      mapStateRef.current.center = nextCenter;
+      setMapCenter(nextCenter);
     }
   };
 
   const handleMapPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+    activePointersRef.current.delete(e.pointerId);
+
+    if (activePointersRef.current.size < 2) {
+      pinchRef.current.isPinching = false;
+    }
+
+    if (activePointersRef.current.size === 1) {
+      // Re-anchor remaining finger for smooth continued pan without triggering tap
+      const remaining = Array.from(activePointersRef.current.values())[0];
+      const curZoom = mapStateRef.current.zoom;
+      const curCenter = mapStateRef.current.center;
+      dragRef.current = {
+        isDragging: true,
+        moved: true,
+        wasMultiTouch: false,
+        startX: remaining.x,
+        startY: remaining.y,
+        startCenterWorldX: lonToWorldX(curCenter.lon, curZoom),
+        startCenterWorldY: latToWorldY(curCenter.lat, curZoom),
+      };
+      return;
+    }
+
     if (!dragRef.current.isDragging) return;
     const wasMoved = dragRef.current.moved;
+    const wasMultiTouch = dragRef.current.wasMultiTouch;
     dragRef.current.isDragging = false;
+    dragRef.current.wasMultiTouch = false;
 
-    if (!wasMoved && mapViewportRef.current) {
+    if (!wasMoved && !wasMultiTouch && mapViewportRef.current) {
       // User clicked/tapped a specific building/window on the map -> move the house pin there!
       const rect = mapViewportRef.current.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
-      const centerWorldX = lonToWorldX(mapCenter.lon, mapZoom);
-      const centerWorldY = latToWorldY(mapCenter.lat, mapZoom);
+      const curZoom = mapStateRef.current.zoom;
+      const curCenter = mapStateRef.current.center;
+      const centerWorldX = lonToWorldX(curCenter.lon, curZoom);
+      const centerWorldY = latToWorldY(curCenter.lat, curZoom);
       const clickWorldX = centerWorldX + (clickX - viewportSize.width / 2);
       const clickWorldY = centerWorldY + (clickY - viewportSize.height / 2);
 
       const clickedLat =
-        Math.round(worldYToLat(clickWorldY, mapZoom) * 1000000) / 1000000;
+        Math.round(worldYToLat(clickWorldY, curZoom) * 1000000) / 1000000;
       const clickedLon =
         Math.round(
-          (((worldXToLon(clickWorldX, mapZoom) + 540) % 360) - 180) * 1000000
+          (((worldXToLon(clickWorldX, curZoom) + 540) % 360) - 180) * 1000000
         ) / 1000000;
 
       setLocation((prev) => ({
@@ -671,36 +850,97 @@ export default function QiblaSection() {
     }
   };
 
-  // Compute screen coordinates for the House Pin, Local Geodesic Ray (projected strictly at initial bearing θ), and 50-segment Great Circle
+  const handleMapPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2) {
+      pinchRef.current.isPinching = false;
+    }
+    if (activePointersRef.current.size === 0) {
+      dragRef.current.isDragging = false;
+      dragRef.current.wasMultiTouch = false;
+    }
+  };
+
+  // Fallback native TouchEvent handlers for Android tablets/WebViews where PointerEvents may coalesce multi-touch
+  const handleMapTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length >= 2 && activePointersRef.current.size < 2) {
+      const t0 = e.touches[0];
+      const t1 = e.touches[1];
+      startTwoFingerPinch(
+        { x: t0.clientX, y: t0.clientY },
+        { x: t1.clientX, y: t1.clientY }
+      );
+    }
+  };
+
+  const handleMapTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length >= 2 && activePointersRef.current.size < 2) {
+      const t0 = e.touches[0];
+      const t1 = e.touches[1];
+      updateTwoFingerPinch(
+        { x: t0.clientX, y: t0.clientY },
+        { x: t1.clientX, y: t1.clientY }
+      );
+    }
+  };
+
+  const handleMapTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length < 2 && activePointersRef.current.size < 2) {
+      pinchRef.current.isPinching = false;
+    }
+  };
+
+  // Mouse wheel / trackpad pinch zoom handler
+  const handleMapWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!mapViewportRef.current) return;
+    const rect = mapViewportRef.current.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const curZoom = mapStateRef.current.zoom;
+    const delta = e.deltaY < 0 ? 1 : -1;
+    const nextZoom = Math.max(3, Math.min(19, curZoom + delta));
+    if (nextZoom !== curZoom) {
+      applyPinchOrZoomStep(nextZoom, cursorX, cursorY, cursorX, cursorY);
+    }
+  };
+
+  // Compute screen coordinates for the House Pin, Kaaba Pin, and unified Geodesic Great Circle
   const housePinScreen = useMemo(
     () => latLonToScreenPx(location.lat, location.lon),
     [latLonToScreenPx, location.lat, location.lon]
   );
 
-  // Project local point 3 km along true initial Great-Circle azimuth θ so at zoom 15..19 the ray across the building roof has zero Mercator rhumb-line error
+  const kaabaScreen = useMemo(
+    () => latLonToScreenPx(KAABA_COORDS.lat, KAABA_COORDS.lon),
+    [latLonToScreenPx]
+  );
+
+  // Project local point 3 km along true initial Great-Circle azimuth θ for the legend
   const localRayTargetCoords = useMemo(
     () => projectGeodesicPoint(location.lat, location.lon, qiblaAzimuth, 3.0),
     [location.lat, location.lon, qiblaAzimuth]
   );
 
-  const localRayEndScreen = useMemo(() => {
-    const thetaRad = (qiblaAzimuth * Math.PI) / 180;
-    // In conformal Web Mercator, local tangent angle from True North is exact θ:
-    const rayLengthPx = Math.max(viewportSize.width, viewportSize.height) * 1.25;
-    return {
-      x: housePinScreen.x + Math.sin(thetaRad) * rayLengthPx,
-      y: housePinScreen.y - Math.cos(thetaRad) * rayLengthPx,
-    };
-  }, [housePinScreen.x, housePinScreen.y, qiblaAzimuth, viewportSize.width, viewportSize.height]);
-
+  // Unified single line: starts with ultra-fine local geodesic steps (0.1km, 0.5km, 2km, 10km)
+  // for razor-sharp building/window alignment at zoom 15..19, and continues seamlessly
+  // along the Great Circle (orthodrome) right to the Kaaba in Mecca at zoom 3..14.
   const orthodromePolylinePoints = useMemo(() => {
-    return greatCircleWaypoints
+    const nearPoints = [0.1, 0.5, 2.0, 10.0]
+      .filter((d) => d < distanceKm * 0.2)
+      .map((d) => projectGeodesicPoint(location.lat, location.lon, qiblaAzimuth, d));
+    const allPoints = [
+      greatCircleWaypoints[0],
+      ...nearPoints,
+      ...greatCircleWaypoints.slice(1),
+    ];
+    return allPoints
       .map((pt) => {
         const sc = latLonToScreenPx(pt.lat, pt.lon);
         return `${sc.x.toFixed(1)},${sc.y.toFixed(1)}`;
       })
       .join(' ');
-  }, [greatCircleWaypoints, latLonToScreenPx]);
+  }, [greatCircleWaypoints, distanceKm, location.lat, location.lon, qiblaAzimuth, latLonToScreenPx]);
 
   // Bubble level offset in pixels (clamped within ±26px circle)
   const bubbleOffset = useMemo(() => {
@@ -1355,20 +1595,6 @@ export default function QiblaSection() {
                 </button>
               </div>
 
-              {/* Toggle 360° Protractor Overlay */}
-              <button
-                type="button"
-                onClick={() => setShowProtractorOnMap((prev) => !prev)}
-                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                  showProtractorOnMap
-                    ? 'bg-amber-50 border-amber-300 text-amber-950'
-                    : 'bg-[#F8F6F1] border-stone-200 text-slate-700'
-                }`}
-              >
-                <Crosshair className="w-3.5 h-3.5" />
-                <span>Транспортир 360°</span>
-              </button>
-
               {/* Center on Current Pin */}
               <button
                 type="button"
@@ -1391,6 +1617,12 @@ export default function QiblaSection() {
             onPointerDown={handleMapPointerDown}
             onPointerMove={handleMapPointerMove}
             onPointerUp={handleMapPointerUp}
+            onPointerCancel={handleMapPointerCancel}
+            onTouchStart={handleMapTouchStart}
+            onTouchMove={handleMapTouchMove}
+            onTouchEnd={handleMapTouchEnd}
+            onTouchCancel={handleMapTouchEnd}
+            onWheel={handleMapWheel}
             className="relative w-full h-[440px] sm:h-[520px] rounded-2xl overflow-hidden border border-stone-300 bg-[#042B22] select-none touch-none cursor-grab active:cursor-grabbing"
           >
             {/* 1. Raster Tiles (Yandex EPSG:3395 or OSM/Esri EPSG:3857) + Hybrid Labels Overlay */}
@@ -1438,180 +1670,55 @@ export default function QiblaSection() {
               </div>
             )}
 
-            {/* 3. High-Precision Geodesic SVG Overlay (Orthodrome + Local Building Ray + 360° Protractor) */}
+            {/* 3. High-Precision Geodesic SVG Overlay (Single Unified Qibla Line from House to Kaaba) */}
             <svg
               viewBox={`0 0 ${viewportSize.width} ${viewportSize.height}`}
               className="absolute inset-0 w-full h-full pointer-events-none"
             >
-              {/* Full 50-Segment Great-Circle Curve to Mecca (visible at lower/medium zooms) */}
-              {mapZoom <= 13 && (
-                <polyline
-                  points={orthodromePolylinePoints}
-                  fill="none"
-                  stroke="#06372C"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.55"
-                />
-              )}
-              {mapZoom <= 13 && (
-                <polyline
-                  points={orthodromePolylinePoints}
-                  fill="none"
-                  stroke="#eab308"
-                  strokeWidth="3"
-                  strokeDasharray="8 5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-
-              {/* 360° Architectural Compass Protractor centered directly on the User's House Pin */}
-              {showProtractorOnMap && (
-                <g
-                  transform={`translate(${housePinScreen.x}, ${housePinScreen.y})`}
-                >
-                  <circle
-                    r="115"
-                    fill="rgba(4, 47, 46, 0.14)"
-                    stroke="#06372C"
-                    strokeWidth="2"
-                  />
-                  <circle
-                    r="115"
-                    fill="none"
-                    stroke="#facc15"
-                    strokeWidth="1.5"
-                    strokeDasharray="4 4"
-                  />
-                  {/* Cardinal Axes through the house */}
-                  <line
-                    x1="0"
-                    y1="-115"
-                    x2="0"
-                    y2="115"
-                    stroke="rgba(6, 55, 44, 0.5)"
-                    strokeWidth="1.2"
-                    strokeDasharray="3 3"
-                  />
-                  <line
-                    x1="-115"
-                    y1="0"
-                    x2="115"
-                    y2="0"
-                    stroke="rgba(6, 55, 44, 0.5)"
-                    strokeWidth="1.2"
-                    strokeDasharray="3 3"
-                  />
-                  {/* Cardinal Badges around the building */}
-                  <g transform="translate(0, -126)">
-                    <rect
-                      x="-22"
-                      y="-10"
-                      width="44"
-                      height="18"
-                      rx="5"
-                      fill="#06372C"
-                    />
-                    <text
-                      x="0"
-                      y="3"
-                      textAnchor="middle"
-                      fill="#f87171"
-                      fontSize="10"
-                      fontWeight="800"
-                    >
-                      СЕВЕР
-                    </text>
-                  </g>
-                  <g transform="translate(0, 130)">
-                    <rect
-                      x="-18"
-                      y="-10"
-                      width="36"
-                      height="18"
-                      rx="5"
-                      fill="#06372C"
-                    />
-                    <text
-                      x="0"
-                      y="3"
-                      textAnchor="middle"
-                      fill="#fef3c7"
-                      fontSize="10"
-                      fontWeight="800"
-                    >
-                      ЮГ
-                    </text>
-                  </g>
-                  <g transform="translate(-134, 0)">
-                    <rect
-                      x="-22"
-                      y="-9"
-                      width="44"
-                      height="18"
-                      rx="5"
-                      fill="#06372C"
-                    />
-                    <text
-                      x="0"
-                      y="3"
-                      textAnchor="middle"
-                      fill="#fef3c7"
-                      fontSize="10"
-                      fontWeight="800"
-                    >
-                      ЗАПАД
-                    </text>
-                  </g>
-                  <g transform="translate(136, 0)">
-                    <rect
-                      x="-25"
-                      y="-9"
-                      width="50"
-                      height="18"
-                      rx="5"
-                      fill="#06372C"
-                    />
-                    <text
-                      x="0"
-                      y="3"
-                      textAnchor="middle"
-                      fill="#fef3c7"
-                      fontSize="10"
-                      fontWeight="800"
-                    >
-                      ВОСТОК
-                    </text>
-                  </g>
-                </g>
-              )}
-
-              {/* Local High-Precision Geodesic Qibla Ray across the House Roof & Windows */}
               <g>
                 {/* Dark Halo for high contrast on both street and satellite imagery */}
-                <line
-                  x1={housePinScreen.x}
-                  y1={housePinScreen.y}
-                  x2={localRayEndScreen.x}
-                  y2={localRayEndScreen.y}
+                <polyline
+                  points={orthodromePolylinePoints}
+                  fill="none"
                   stroke="#042f2e"
                   strokeWidth="7"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.85"
                 />
-                {/* Bright Golden Qibla Beam */}
-                <line
-                  x1={housePinScreen.x}
-                  y1={housePinScreen.y}
-                  x2={localRayEndScreen.x}
-                  y2={localRayEndScreen.y}
+                {/* Single Continuous Golden Qibla Line (exact initial azimuth at house + Great Circle to Mecca) */}
+                <polyline
+                  points={orthodromePolylinePoints}
+                  fill="none"
                   stroke="#facc15"
                   strokeWidth="3.5"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
 
-                {/* Directional Arrow Badge at 92px along the Qibla Ray */}
+                {/* Kaaba Marker in Mecca (visible when zoomed out) */}
+                <g transform={`translate(${kaabaScreen.x}, ${kaabaScreen.y})`}>
+                  <rect
+                    x="-10"
+                    y="-10"
+                    width="20"
+                    height="20"
+                    rx="4"
+                    fill="#0f172a"
+                    stroke="#facc15"
+                    strokeWidth="2.5"
+                  />
+                  <line
+                    x1="-9"
+                    y1="-4"
+                    x2="9"
+                    y2="-4"
+                    stroke="#facc15"
+                    strokeWidth="2.5"
+                  />
+                </g>
+
+                {/* Directional Arrow Badge at 92px along the Qibla Ray from House Pin */}
                 <g
                   transform={`translate(${housePinScreen.x}, ${housePinScreen.y}) rotate(${qiblaAzimuth}) translate(0, -92)`}
                 >

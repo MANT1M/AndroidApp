@@ -105,12 +105,22 @@ export default function PrayerTimesBlock({
   const [tableFilterPeriod, setTableFilterPeriod] = useState<'all' | PrayerPeriodId>('all');
   const [selectedCardKey, setSelectedCardKey] = useState<PrayerColumnMeta['key'] | null>(null);
 
-  // Update clock every 1 second for live HH:MM:SS countdown
+  // Update clock every 1 second for live HH:MM:SS countdown + immediate refresh on screen wake/focus
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-    return () => window.clearInterval(id);
+    const updateClock = () => setNow(new Date());
+    const id = window.setInterval(updateClock, 1000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        updateClock();
+      }
+    };
+    window.addEventListener('focus', updateClock);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', updateClock);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   const todayDayIdx = useMemo(() => findDefaultDayIndex(now), [now]);
@@ -554,7 +564,7 @@ export default function PrayerTimesBlock({
           <button
             type="button"
             onClick={() => setShowOriginalImage((prev) => !prev)}
-            className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            className="hidden w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <ImageIcon className="w-4 h-4 text-[#EAB308] shrink-0" />
             <span>
@@ -579,7 +589,7 @@ export default function PrayerTimesBlock({
             <button
               type="button"
               onClick={onStartPostSalahTasbih}
-              className="w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              className="hidden w-full rounded-full py-2.5 px-4 bg-[#184D3D] hover:bg-[#1F5E4B] border border-[#3E6B58] text-[#FEF3C7] text-xs sm:text-sm font-bold items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-[#EAB308] shrink-0" />
               <span>Зикры после намаза</span>

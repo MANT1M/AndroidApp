@@ -337,7 +337,7 @@ dependencies {
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
-        android:label="Интерактивная Читалка"
+        android:label="Благие дела"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         tools:targetApi="35">
